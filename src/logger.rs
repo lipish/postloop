@@ -91,6 +91,7 @@ impl Log for PloopLogger {
 }
 
 /// Initialize a simple console logger for development
+#[allow(dead_code)]
 pub fn init_simple_logger() {
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Info)

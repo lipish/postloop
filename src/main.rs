@@ -40,9 +40,6 @@ enum Commands {
 }
 
 fn main() {
-    // Initialize simple logger for console output
-    logger::init_simple_logger();
-
     let cli = Cli::parse();
 
     let result = match cli.command {
@@ -54,7 +51,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        log::error!("Error: {}", e);
+        eprintln!("Error: {}", e);
         std::process::exit(1);
     }
 }
