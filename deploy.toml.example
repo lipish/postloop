@@ -1,0 +1,49 @@
+# ploop Configuration File
+# Copy this file to deploy.toml and customize for your project
+
+[watch]
+# Path to the Git repository
+repo_path = "."
+# Branch to watch
+branch = "main"
+
+[build]
+# Build command to execute
+# Examples:
+#   Rust: "cargo build --release"
+#   Node: "npm run build"
+#   Go:   "go build -o app"
+command = "cargo build --release"
+
+[deploy]
+# Optional: Custom deployment command (for process deployment)
+# Example: "systemctl restart app.service"
+# command = "systemctl restart app.service"
+
+# Optional: Target directory for file deployment
+# If set, build artifacts will be copied here
+target_dir = "/opt/deploy"
+
+# Optional: List of build artifacts to deploy
+# These files will be copied to target_dir
+artifacts = ["target/release/my-app"]
+
+[sync]
+# Enable/disable GitHub sync after deployment
+enabled = true
+# Git remote name
+remote = "origin"
+# Branch to push to
+branch = "main"
+
+[rollback]
+# Enable/disable rollback support
+enabled = true
+# Number of versions to keep
+keep_versions = 3
+
+[log]
+# Log file path
+file = "ploop.log"
+# Log level: trace, debug, info, warn, error
+level = "info"
