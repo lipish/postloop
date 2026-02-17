@@ -1,0 +1,21 @@
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+ploop.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+/tmp/
