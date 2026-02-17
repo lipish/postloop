@@ -82,7 +82,7 @@ impl Config {
                 keep_versions: 3,
             },
             log: LogConfig {
-                file: "ploop.log".to_string(),
+                file: "postloop.log".to_string(),
                 level: "info".to_string(),
             },
         }

@@ -1,4 +1,4 @@
-# ploop Configuration File
+# postloop Configuration File
 # Copy this file to deploy.toml and customize for your project
 
 [watch]
@@ -44,6 +44,6 @@ keep_versions = 3
 
 [log]
 # Log file path
-file = "ploop.log"
+file = "postloop.log"
 # Log level: trace, debug, info, warn, error
 level = "info"

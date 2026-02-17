@@ -1,16 +1,16 @@
-# ploop
+# postloop
 
 **Post-commit Loop** - Local Git Auto-Deployment Tool
 
 ### Overview
 
-ploop is a local Git auto-deployment tool written in Rust, designed for solo developers. The core concept is: after code commit, automatically complete the "build → deploy → sync to GitHub" cycle.
+postloop is a local Git auto-deployment tool written in Rust, designed for solo developers. The core concept is: after code commit, automatically complete the "build → deploy → sync to GitHub" cycle.
 
 ### Features
 
 #### 1. Post-commit Hook Trigger
-- Provides `ploop init` command to install post-commit hook in the target Git repository
-- Hook script automatically triggers ploop deployment process after each `git commit`
+- Provides `postloop init` command to install post-commit hook in the target Git repository
+- Hook script automatically triggers postloop deployment process after each `git commit`
 
 #### 2. Auto Build
 - Executes build commands based on `build.command` in the configuration file
@@ -45,18 +45,18 @@ cargo install --path .
 Or build from source:
 
 ```bash
-git clone https://github.com/lipish/ploop.git
-cd ploop
+git clone https://github.com/lipish/postloop.git
+cd postloop
 cargo build --release
-sudo cp target/release/ploop /usr/local/bin/
+sudo cp target/release/postloop /usr/local/bin/
 ```
 
 ### Quick Start
 
-1. Initialize ploop in your Git repository:
+1. Initialize postloop in your Git repository:
 ```bash
 cd /path/to/your/repo
-ploop init
+postloop init
 ```
 
 2. Edit the generated `deploy.toml` configuration file:
@@ -69,27 +69,27 @@ target_dir = "/opt/deploy"
 artifacts = ["target/release/my-app"]
 ```
 
-3. Commit your code, and ploop will automatically deploy:
+3. Commit your code, and postloop will automatically deploy:
 ```bash
 git add .
 git commit -m "Your changes"
-# ploop runs automatically via post-commit hook
+# postloop runs automatically via post-commit hook
 ```
 
 4. Or run manually:
 ```bash
-ploop run
+postloop run
 ```
 
 ### CLI Commands
 
-- `ploop init` — Initialize ploop in current Git repository (installs post-commit hook, generates default deploy.toml)
-- `ploop run` — Manually trigger complete build→deploy→sync pipeline
-- `ploop rollback` — Manually rollback to previous version
-- `ploop rollback --version <hash>` — Rollback to specific version
-- `ploop status` — View current deployment status and recent deployment history
-- `ploop log` — View deployment logs
-- `ploop log --lines 100` — View last 100 lines of logs
+- `postloop init` — Initialize postloop in current Git repository (installs post-commit hook, generates default deploy.toml)
+- `postloop run` — Manually trigger complete build→deploy→sync pipeline
+- `postloop rollback` — Manually rollback to previous version
+- `postloop rollback --version <hash>` — Rollback to specific version
+- `postloop status` — View current deployment status and recent deployment history
+- `postloop log` — View deployment logs
+- `postloop log --lines 100` — View last 100 lines of logs
 
 ### Configuration File (deploy.toml)
 
@@ -121,7 +121,7 @@ enabled = true
 keep_versions = 3
 
 [log]
-file = "ploop.log"
+file = "postloop.log"
 level = "info"
 ```
 

@@ -1,10 +1,10 @@
 [package]
-name = "ploop"
+name = "postloop"
 version = "0.1.2"
 edition = "2021"
 description = "Post-commit Loop - Local Git auto-deployment tool"
 license = "MIT"
-repository = "https://github.com/lipish/ploop"
+repository = "https://github.com/lipish/postloop"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -15,9 +15,9 @@ env_logger = "0.11"
 log = "0.4"
 
 [lib]
-name = "ploop"
+name = "postloop"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ploop"
+name = "postloop"
 path = "src/main.rs"

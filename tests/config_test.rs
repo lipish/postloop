@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod config_tests {
-    use ploop::config::Config;
+    use postloop::config::Config;
 
     #[test]
     fn test_default_config() {

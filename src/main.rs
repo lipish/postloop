@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use std::path::Path;
 
 #[derive(Parser)]
-#[command(name = "ploop")]
+#[command(name = "postloop")]
 #[command(about = "Post-commit Loop - Local Git auto-deployment tool", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -19,7 +19,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize ploop in current Git repository
+    /// Initialize postloop in current Git repository
     Init,
     /// Run deployment pipeline manually
     Run,
