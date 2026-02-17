@@ -1,8 +1,10 @@
 [package]
 name = "ploop"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Post-commit Loop - Local Git auto-deployment tool"
+license = "MIT"
+repository = "https://github.com/lipish/ploop"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
