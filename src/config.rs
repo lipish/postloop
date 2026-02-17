@@ -110,7 +110,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.watch.branch, "main");
         assert_eq!(config.build.command, "cargo build --release");
-        assert_eq!(config.sync.enabled, true);
+        assert!(config.sync.enabled);
         assert_eq!(config.rollback.keep_versions, 3);
     }
 }

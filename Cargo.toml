@@ -12,6 +12,10 @@ chrono = "0.4"
 env_logger = "0.11"
 log = "0.4"
 
+[lib]
+name = "ploop"
+path = "src/lib.rs"
+
 [[bin]]
 name = "ploop"
 path = "src/main.rs"

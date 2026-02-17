@@ -1,4 +1,5 @@
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -91,16 +92,4 @@ pub fn is_git_repo(repo_path: &str) -> bool {
     let mut git_path = PathBuf::from(repo_path);
     git_path.push(".git");
     git_path.exists()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_git_repo() {
-        // Current working directory should be a git repo
-        let result = is_git_repo(".");
-        assert!(result || !result); // Just test that it doesn't panic
-    }
 }

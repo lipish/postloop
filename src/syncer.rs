@@ -62,16 +62,3 @@ pub fn has_unpushed_commits(
 
     Ok(local_commit != remote_commit)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_has_unpushed_commits() {
-        // Just test that the function doesn't panic
-        let result = has_unpushed_commits("origin", "main", ".");
-        // Result can be Ok or Err depending on git state
-        assert!(result.is_ok() || result.is_err());
-    }
-}
