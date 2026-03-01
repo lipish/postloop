@@ -6,3 +6,5 @@ pub mod builder;
 pub mod deployer;
 pub mod syncer;
 pub mod rollback;
+pub mod intent;
+pub mod registry;

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod config_tests {
-    use postloop::config::Config;
+    use intentloop::config::Config;
 
     #[test]
     fn test_default_config() {

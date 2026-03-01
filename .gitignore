@@ -1,6 +1,7 @@
 # Rust build artifacts
 /target/
 Cargo.lock
+.intent/
 
 # IDE
 .vscode/
@@ -12,6 +13,7 @@ Cargo.lock
 # Logs
 *.log
 postloop.log
+intentloop.log
 
 # OS
 .DS_Store
@@ -22,3 +24,7 @@ Thumbs.db
 
 # Generated config (users create their own)
 deploy.toml
+
+# Local IntentLoop run artifacts
+INTENT.md
+examples/*.tmp

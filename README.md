@@ -1,141 +1,164 @@
-# postloop
+# intentloop
 
-**Post-commit Loop** - Local Git Auto-Deployment Tool
+IntentLoop Lite - Local Agent Session Recorder
 
-### Overview
+## Overview
 
-postloop is a local Git auto-deployment tool written in Rust, designed for solo developers. The core concept is: after code commit, automatically complete the "build → deploy → sync to GitHub" cycle.
+IntentLoop Lite is a Rust CLI for personal AI-assisted development.
+It wraps an agent command, records one session end-to-end, and stores:
 
-### Features
+- Session metadata
+- Intent reference from `INTENT.md`
+- Raw terminal output
+- Minimal Markdown report
 
-#### 1. Post-commit Hook Trigger
-- Provides `postloop init` command to install post-commit hook in the target Git repository
-- Hook script automatically triggers postloop deployment process after each `git commit`
+This is the Phase 1-Lite scope: `run` + `copilot` + `show`, plus optional `zene` integration.
 
-#### 2. Auto Build
-- Executes build commands based on `build.command` in the configuration file
-- Supports any build command (e.g., `cargo build --release`, `npm run build`, `go build`)
-- Logs and terminates process on build failure
-
-#### 3. Auto Deploy
-- Supports two deployment methods:
-  - **Process Deployment**: Execute custom deployment command (e.g., `systemctl restart app.service`)
-  - **File Deployment**: Copy build artifacts to target directory (`target_dir`)
-- Supports rollback to previous version on deployment failure
-
-#### 4. Sync to GitHub
-- Automatically executes `git push` to sync code to remote GitHub repository after successful deployment
-- Specify remote name and branch in configuration file
-- Logs push failures but doesn't affect local deployment result
-
-#### 5. Rollback Support
-- Keeps the most recent N versions of build artifacts (configurable)
-- Automatically rolls back to last successful version on deployment failure
-
-#### 6. Logging
-- All operations (build, deploy, sync, rollback) logged to local log file
-- Logs include timestamp, commit hash, operation results
-
-### Installation
+## Install
 
 ```bash
 cargo install --path .
 ```
 
-Or build from source:
+Or build locally:
 
 ```bash
-git clone https://github.com/lipish/postloop.git
-cd postloop
 cargo build --release
-sudo cp target/release/postloop /usr/local/bin/
+./target/release/intentloop --help
 ```
 
-### Quick Start
+## Quick Start
 
-1. Initialize postloop in your Git repository:
+1) (Optional) Create `INTENT.md` in repo root:
+
+```md
+id: auth-jwt-001
+title: Login refactor to JWT
+```
+
+2) Run an agent command through IntentLoop:
+
 ```bash
-cd /path/to/your/repo
-postloop init
+intentloop run -- echo "hello-intentloop"
 ```
 
-2. Edit the generated `deploy.toml` configuration file:
-```toml
-[build]
-command = "cargo build --release"
+Or run a Copilot CLI session directly:
 
-[deploy]
-target_dir = "/opt/deploy"
-artifacts = ["target/release/my-app"]
-```
-
-3. Commit your code, and postloop will automatically deploy:
 ```bash
-git add .
-git commit -m "Your changes"
-# postloop runs automatically via post-commit hook
+intentloop copilot
 ```
 
-4. Or run manually:
+`intentloop copilot` defaults to `--mode auto`:
+- uses `gh copilot` when available
+- otherwise falls back to `gh agent-task`
+
+Or pass raw args to `gh copilot`:
+
 ```bash
-postloop run
+intentloop copilot -- suggest "refactor auth module with safer token handling"
 ```
 
-### CLI Commands
+Force backend explicitly:
 
-- `postloop init` — Initialize postloop in current Git repository (installs post-commit hook, generates default deploy.toml)
-- `postloop run` — Manually trigger complete build→deploy→sync pipeline
-- `postloop rollback` — Manually rollback to previous version
-- `postloop rollback --version <hash>` — Rollback to specific version
-- `postloop status` — View current deployment status and recent deployment history
-- `postloop log` — View deployment logs
-- `postloop log --lines 100` — View last 100 lines of logs
-
-### Configuration File (deploy.toml)
-
-See `deploy.toml.example` for a complete configuration example.
-
-```toml
-[watch]
-repo_path = "."
-branch = "main"
-
-[build]
-command = "cargo build --release"
-
-[deploy]
-# Option 1: Process deployment
-command = "systemctl restart app.service"
-
-# Option 2: File deployment
-target_dir = "/opt/deploy"
-artifacts = ["target/release/my-app"]
-
-[sync]
-enabled = true
-remote = "origin"
-branch = "main"
-
-[rollback]
-enabled = true
-keep_versions = 3
-
-[log]
-file = "postloop.log"
-level = "info"
+```bash
+intentloop copilot --mode copilot -- suggest "analyze auth flow"
+intentloop copilot --mode agent-task -- create "Refactor auth module"
 ```
 
-### Requirements
+3) Inspect the session:
 
-- Git
-- Rust 1.70+ (for building)
+```bash
+intentloop show <session-id>
+```
 
-### Platform Support
+Run with embedded Zene event stream:
 
-- ✅ Linux
-- ✅ macOS
-- ✅ Windows
+```bash
+cargo run --features zene -- zene
+```
 
-### License
+Or provide a prompt explicitly:
+
+```bash
+cargo run --features zene -- zene --prompt "Analyze this repository and propose refactoring plan"
+```
+
+## Commands
+
+- `intentloop run -- <agent-cli> [args...]`
+  - Runs the command and records a session in `~/.intentloop/` (or `$INTENTLOOP_HOME`).
+- `intentloop copilot [--mode auto|copilot|agent-task] [--prompt "..."] [-- <gh args...>]`
+  - Runs GitHub CLI agent command in a recorded session.
+  - Uses PTY interactive mode by default (full terminal interaction + transcript capture).
+  - Add `--non-interactive` to use one-shot capture mode.
+  - Add `--wait` to wait for final result when using `gh agent-task` (`create --follow`).
+  - If no args are provided, it builds a prompt from `INTENT.md` and runs:
+    - `gh copilot suggest <prompt>` (copilot mode)
+    - `gh agent-task create <prompt>` (agent-task mode)
+
+Wait for final result example:
+
+```bash
+intentloop copilot --mode agent-task --wait
+```
+- `intentloop show <session-id>`
+  - Shows session metadata and log/report paths.
+- `intentloop zene [--prompt "..."] [--zene-session-id "..."]`
+  - Requires `--features zene` at build/run time.
+  - Runs Zene as embedded Rust library.
+  - Consumes `run_envelope_stream` and records all event envelopes to `events.jsonl`.
+
+## Storage Layout
+
+```text
+~/.intentloop/                  # or $INTENTLOOP_HOME
+  db.sqlite
+  sessions/
+    <session_id>/
+      terminal.raw.log
+      events.jsonl
+      report.md
+```
+
+You can override the storage root with:
+
+```bash
+export INTENTLOOP_HOME=/path/to/your/session-store
+```
+
+## Current Scope (Lite)
+
+Included:
+- `sessions` + `thought_events` in SQLite
+- Raw terminal log capture
+- Minimal report generation
+
+Not included yet:
+- Rewind
+- Artifacts hash/diff
+- Git hooks
+- Search / LanceDB
+
+## Environment Variables (.env)
+
+- IntentLoop now auto-loads `.env` from the current working directory (and parent chain, via `dotenvy`).
+- This means `intentloop zene` can read the same model/provider variables used by `zene` directly.
+- Quick start: `cp .env.example .env` and fill your API key/model settings.
+
+Example:
+
+```bash
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+LLM_API_KEY=your_key
+```
+
+## Copilot CLI Prerequisites
+
+- Install GitHub CLI (`gh`)
+- Install/enable Copilot CLI support for `gh` (or use `gh agent-task` preview commands)
+- Run `gh auth login` and ensure `gh copilot` works in your shell
+
+## License
 
 MIT
