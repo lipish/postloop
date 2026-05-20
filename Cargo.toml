@@ -1,10 +1,10 @@
 [package]
-name = "intentloop"
-version = "0.1.3"
+name = "intent"
+version = "0.2.0"
 edition = "2021"
-description = "IntentLoop Lite - local agent session recorder"
+description = "Intent - local agent session recorder (interactive)"
 license = "MIT"
-repository = "https://github.com/lipish/intentloop"
+repository = "https://github.com/lipish/intent"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -17,14 +17,17 @@ log = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 portable-pty = "0.8"
+crossterm = "0.28"
+signal-hook = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 dotenvy = "0.15"
 vt100 = "0.15"
+strip-ansi-escapes = "0.2"
 
 [lib]
-name = "intentloop"
+name = "intent"
 path = "src/lib.rs"
 
 [[bin]]
-name = "intentloop"
+name = "intent"
 path = "src/main.rs"

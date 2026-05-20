@@ -1,11 +1,11 @@
-# intentloop
+# intent
 
-IntentLoop Lite - Local Agent Session Recorder
+Intent - Interactive Agent Session Recorder
 
 ## Overview
 
-IntentLoop Lite is a Rust CLI for personal AI-assisted development.
-It wraps an agent command, records one session end-to-end, and stores:
+`intent` is a lightweight Rust CLI for personal AI-assisted development.
+It wraps any agent (Cursor, Claude, Copilot, etc.), records the full interactive session, and stores:
 
 - Session metadata
 - Intent reference from `INTENT.md`
@@ -24,7 +24,7 @@ Or build locally:
 
 ```bash
 cargo build --release
-./target/release/intentloop --help
+./target/release/intent --help
 ```
 
 ## Quick Start
@@ -36,39 +36,38 @@ id: auth-jwt-001
 title: Login refactor to JWT
 ```
 
-2) Run an agent command through IntentLoop:
+2) Run an agent interactively:
 
 ```bash
-intentloop run -- echo "hello-intentloop"
+intent run --agent cursor
 ```
 
-Or run a Copilot CLI session directly:
+This launches Cursor (or any agent defined in `.intent/agents.toml`) in full PTY interactive mode and records everything.
+
+You can also pass extra args:
 
 ```bash
-intentloop copilot
+intent run --agent cursor -- --some-flag
 ```
 
-`intentloop copilot` defaults to `--mode auto`:
-- uses `gh copilot` when available
-- otherwise falls back to `gh agent-task`
-
-Or pass raw args to `gh copilot`:
+Or run any command:
 
 ```bash
-intentloop copilot -- suggest "refactor auth module with safer token handling"
+intent run -- echo "hello"
 ```
 
-Force backend explicitly:
+Copy `.intent/agents.toml.example` to `.intent/agents.toml` (current dir or `~/.intent/`) to add Cursor, Claude, Codex, etc.
+
+Or run GitHub Copilot CLI directly:
 
 ```bash
-intentloop copilot --mode copilot -- suggest "analyze auth flow"
-intentloop copilot --mode agent-task -- create "Refactor auth module"
+intent copilot
 ```
 
-3) Inspect the session:
+3) Inspect a session:
 
 ```bash
-intentloop show <session-id>
+intent show <session-id>
 ```
 
 
@@ -88,15 +87,15 @@ intentloop show <session-id>
 Wait for final result example:
 
 ```bash
-intentloop copilot --mode agent-task --wait
+intent copilot --mode agent-task --wait
 ```
-- `intentloop show <session-id>`
+- `intent show <session-id>`
   - Shows session metadata and log/report paths.
 
 ## Storage Layout
 
 ```text
-~/.intentloop/                  # or $INTENTLOOP_HOME
+~/.intent/                  # or $INTENT_HOME
   db.sqlite
   sessions/
     <session_id>/
@@ -108,25 +107,25 @@ intentloop copilot --mode agent-task --wait
 You can override the storage root with:
 
 ```bash
-export INTENTLOOP_HOME=/path/to/your/session-store
+export INTENT_HOME=/path/to/your/session-store
 ```
 
-## Current Scope (Lite)
+## Current Scope
 
 Included:
-- `sessions` + `thought_events` in SQLite
-- Raw terminal log capture
-- Minimal report generation
+- Interactive PTY session recording (`intent run --agent xxx`)
+- SQLite + raw log + structured events
+- Minimal Markdown report
+- Agent profiles via `.intent/agents.toml`
 
 Not included yet:
-- Rewind
-- Artifacts hash/diff
+- Rewind / snapshot restore
 - Git hooks
-- Search / LanceDB
+- Semantic search
 
 ## Environment Variables (.env)
 
-- IntentLoop now auto-loads `.env` from the current working directory (and parent chain, via `dotenvy`).
+- Auto-loads `.env` from current directory (via `dotenvy`).
 - Quick start: `cp .env.example .env` and fill your API key/model settings.
 
 Example:

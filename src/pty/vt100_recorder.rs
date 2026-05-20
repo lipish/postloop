@@ -1,0 +1,103 @@
+//! 将 PTY stdout 字节流喂入 vt100 虚拟终端，提取稳定屏幕快照。
+
+use crate::pty::content_filter::{filter_content_lines, is_noise_line};
+
+use vt100::Parser;
+
+#[derive(Debug, Clone)]
+pub struct ScreenSnapshot {
+    pub seq: usize,
+    pub contents: String,
+}
+
+pub struct Vt100Recorder {
+    parser: Parser,
+    snapshots: Vec<ScreenSnapshot>,
+    last_contents: String,
+}
+
+impl Vt100Recorder {
+    pub fn new(rows: u16, cols: u16) -> Self {
+        Self {
+            parser: Parser::new(rows, cols, 1000),
+            snapshots: Vec::new(),
+            last_contents: String::new(),
+        }
+    }
+
+    /// 按 PTY 捕获顺序回放字节流，仅在屏幕内容变化时记录快照。
+    pub fn replay(mut self, stdout: &[u8]) -> Vec<ScreenSnapshot> {
+        for chunk in stdout.chunks(8192) {
+            self.parser.process(chunk);
+            self.maybe_snapshot();
+        }
+        self.maybe_snapshot();
+        self.snapshots
+    }
+
+    fn maybe_snapshot(&mut self) {
+        let contents = normalize_screen(&self.parser.screen().contents());
+        if contents == self.last_contents {
+            return;
+        }
+        self.last_contents = contents.clone();
+        self.snapshots.push(ScreenSnapshot {
+            seq: self.snapshots.len(),
+            contents,
+        });
+    }
+}
+
+pub fn normalize_screen(text: &str) -> String {
+    text.lines()
+        .map(|line| line.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 提取 after 相对 before 新增的非空行（vt100 屏幕 diff）。
+pub fn lines_added(before: &str, after: &str) -> Vec<String> {
+    let before_set: std::collections::HashSet<&str> = before
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    filter_content_lines(
+        after
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !before_set.contains(line) && !is_noise_line(line))
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+/// 无 ANSI 的旧日志：按行去重提取正文（best-effort 回退）。
+pub fn unique_content_lines(text: &str) -> Vec<String> {
+    filter_content_lines(
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !is_noise_line(l))
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+pub fn stdout_has_ansi(stdout: &[u8]) -> bool {
+    stdout.contains(&0x1b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replay_dedupes_identical_screens() {
+        let mut recorder = Vt100Recorder::new(24, 80);
+        recorder.parser.process(b"Hello\r\nWorld\r\n");
+        recorder.maybe_snapshot();
+        recorder.maybe_snapshot();
+        assert_eq!(recorder.snapshots.len(), 1);
+    }
+}
