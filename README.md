@@ -12,7 +12,7 @@ It wraps an agent command, records one session end-to-end, and stores:
 - Raw terminal output
 - Minimal Markdown report
 
-This is the Phase 1-Lite scope: `run` + `copilot` + `show`, plus optional `zene` integration.
+This is the Phase 1-Lite scope: `run` + `copilot` + `show` with full PTY interaction and structured event capture.
 
 ## Install
 
@@ -71,17 +71,6 @@ intentloop copilot --mode agent-task -- create "Refactor auth module"
 intentloop show <session-id>
 ```
 
-Run with embedded Zene event stream:
-
-```bash
-cargo run --features zene -- zene
-```
-
-Or provide a prompt explicitly:
-
-```bash
-cargo run --features zene -- zene --prompt "Analyze this repository and propose refactoring plan"
-```
 
 ## Commands
 
@@ -103,10 +92,6 @@ intentloop copilot --mode agent-task --wait
 ```
 - `intentloop show <session-id>`
   - Shows session metadata and log/report paths.
-- `intentloop zene [--prompt "..."] [--zene-session-id "..."]`
-  - Requires `--features zene` at build/run time.
-  - Runs Zene as embedded Rust library.
-  - Consumes `run_envelope_stream` and records all event envelopes to `events.jsonl`.
 
 ## Storage Layout
 
@@ -142,7 +127,6 @@ Not included yet:
 ## Environment Variables (.env)
 
 - IntentLoop now auto-loads `.env` from the current working directory (and parent chain, via `dotenvy`).
-- This means `intentloop zene` can read the same model/provider variables used by `zene` directly.
 - Quick start: `cp .env.example .env` and fill your API key/model settings.
 
 Example:

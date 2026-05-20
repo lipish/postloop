@@ -76,28 +76,3 @@ pub fn build_copilot_prompt(intent: &IntentInfo) -> String {
         intent.id, intent.title, body
     )
 }
-
-#[cfg(feature = "zene")]
-pub fn build_intent_prompt(intent: &IntentInfo, agent_name: &str) -> String {
-    let body = intent
-        .content
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            !trimmed.is_empty() && !trimmed.starts_with("id:") && !trimmed.starts_with("title:")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    if body.is_empty() {
-        return format!(
-            "You are {}. Execute the user's intent in the current repository, and provide a concise final summary.",
-            agent_name
-        );
-    }
-
-    format!(
-        "You are {}. Execute the user's intent in the current repository.\n\nIntent ID: {}\nIntent Title: {}\n\nIntent Content:\n{}\n\nWhen complete, provide a concise final summary.",
-        agent_name, intent.id, intent.title, body
-    )
-}

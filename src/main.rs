@@ -1,18 +1,12 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
-#[cfg(feature = "zene")]
-use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-#[cfg(feature = "zene")]
-use tokio::runtime::Runtime;
 use uuid::Uuid;
-#[cfg(feature = "zene")]
-use zene::{AgentConfig as ZeneConfig, EventEnvelope, FileSessionStore, RunRequest as ZeneRunRequest, ZeneEngine};
 
 mod intent;
 mod registry;
@@ -39,6 +33,9 @@ enum Commands {
         /// Agent command and arguments, e.g. `intentloop run -- claude code`
         #[arg(required = true, trailing_var_arg = true)]
         command: Vec<String>,
+        /// Disable PTY mode and execute in non-interactive capture mode
+        #[arg(long)]
+        non_interactive: bool,
     },
     /// Run GitHub Copilot CLI in an IntentLoop session
     Copilot {
@@ -63,15 +60,6 @@ enum Commands {
         /// Session ID
         session_id: String,
     },
-    /// Run Zene as embedded Rust library and record full event stream
-    Zene {
-        /// Prompt instruction. If omitted, generated from INTENT.md
-        #[arg(short, long)]
-        prompt: Option<String>,
-        /// Explicit Zene session id (defaults to IntentLoop session id)
-        #[arg(long)]
-        zene_session_id: Option<String>,
-    },
 }
 
 fn main() {
@@ -80,12 +68,11 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Run { command } => cmd_run(command),
+        Commands::Run { command, non_interactive } => cmd_run(command, non_interactive),
         Commands::Copilot { prompt, mode, non_interactive, wait, args } => {
             cmd_copilot(prompt, mode, non_interactive, wait, args)
         }
         Commands::Show { session_id } => cmd_show(&session_id),
-        Commands::Zene { prompt, zene_session_id } => cmd_zene(prompt, zene_session_id),
     };
 
     if let Err(e) = result {
@@ -94,227 +81,13 @@ fn main() {
     }
 }
 
-fn cmd_zene(
-    _prompt: Option<String>,
-    _zene_session_id: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(not(feature = "zene"))]
-    {
-        return Err(
-            "Zene integration is disabled in this build. Rebuild with `cargo run --features zene -- zene ...`"
-                .into(),
-        );
-    }
-
-    #[cfg(feature = "zene")]
-    {
-        return cmd_zene_enabled(_prompt, _zene_session_id);
-    }
-}
-
-#[cfg(feature = "zene")]
-fn cmd_zene_enabled(
-    prompt: Option<String>,
-    zene_session_id: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let repo_root = std::env::current_dir()?;
-    let registry = registry::Registry::init(&repo_root)?;
-    let intent = intent::load_intent(&repo_root);
-
-    let session_id = Uuid::now_v7().to_string();
-    let session_dir = registry.session_dir_path(&session_id);
-    fs::create_dir_all(&session_dir)?;
-
-    let events_path = session_dir.join("events.jsonl");
-    let raw_log_path = registry.session_log_path(&session_id);
-    let report_path = registry.session_report_path(&session_id);
-
-    let zene_sid = zene_session_id.unwrap_or_else(|| session_id.clone());
-    let final_prompt = prompt.unwrap_or_else(|| intent::build_intent_prompt(&intent, "Zene"));
-    let agent_cmd = format!("zene::run_envelope_stream(session_id={})", zene_sid);
-
-    registry.create_session(
-        &session_id,
-        &intent.id,
-        &intent.title,
-        &agent_cmd,
-        &repo_root,
-        &raw_log_path,
-    )?;
-
-    println!("▶ Running session: {}", session_id);
-    println!("Intent: {} ({})", intent.title, intent.id);
-    println!("Backend: zene (embedded)");
-    println!("Zene session: {}", zene_sid);
-
-    let rt = Runtime::new()?;
-
-    let (final_status, final_code, final_summary, error_count, first_error_message) = rt.block_on(async {
-        let zene_store_dir = session_dir.join("zene_store");
-        let zene_store = Arc::new(FileSessionStore::new(zene_store_dir)?);
-        let config = ZeneConfig::from_env().unwrap_or_else(|_| ZeneConfig::default());
-        let engine = ZeneEngine::new(config, zene_store).await?;
-
-        let req = ZeneRunRequest {
-            prompt: final_prompt,
-            session_id: zene_sid.clone(),
-            env_vars: None,
-        };
-
-        let mut event_rx = engine.run_envelope_stream(req).await?;
-
-        let mut raw_file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&raw_log_path)?;
-        let mut events_file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&events_path)?;
-
-        writeln!(raw_file, "# session_id: {}", session_id)?;
-        writeln!(raw_file, "# intent_id: {}", intent.id)?;
-        writeln!(raw_file, "# intent_title: {}", intent.title)?;
-        writeln!(raw_file, "# backend: zene")?;
-        writeln!(raw_file, "# zene_session_id: {}", zene_sid)?;
-        writeln!(raw_file)?;
-
-        let mut seq = 1;
-        let mut final_status = "succeeded".to_string();
-        let mut final_code = Some(0);
-        let mut final_summary = String::new();
-        let mut error_count: usize = 0;
-        let mut first_error_message: Option<String> = None;
-
-        while let Some(envelope) = event_rx.recv().await {
-            let envelope_json = serde_json::to_string(&envelope)?;
-            writeln!(events_file, "{}", envelope_json)?;
-
-            let line = format!(
-                "[{}] {} #{}",
-                envelope.ts.to_rfc3339(),
-                envelope.event_type,
-                envelope.seq
-            );
-            writeln!(raw_file, "{}", line)?;
-
-            let payload_text = serde_json::to_string(&envelope.payload)?;
-            writeln!(raw_file, "  payload: {}", payload_text)?;
-
-            let event_line = format!("{} {}", envelope.event_type, payload_text);
-            seq = registry.add_thought_events(&session_id, "zene_event", &[event_line], seq)?;
-
-            if envelope.event_type == "Finished" {
-                final_summary = extract_finished_text(&envelope).unwrap_or_else(|| "Finished".to_string());
-                final_status = "succeeded".to_string();
-                final_code = Some(0);
-            }
-
-            if envelope.event_type == "Error" {
-                let error_message = extract_error_text(&envelope).unwrap_or_else(|| "Error".to_string());
-                if first_error_message.is_none() {
-                    first_error_message = Some(error_message.clone());
-                }
-                error_count += 1;
-                final_summary = error_message;
-                final_status = "failed".to_string();
-                final_code = Some(1);
-            }
-        }
-
-        Ok::<(String, Option<i32>, String, usize, Option<String>), Box<dyn std::error::Error>>((
-            final_status,
-            final_code,
-            final_summary,
-            error_count,
-            first_error_message,
-        ))
-    })?;
-
-    registry.complete_session(&session_id, &final_status, final_code)?;
-    generate_min_report(&registry, &session_id)?;
-    append_zene_report_tail(
-        &report_path,
-        &events_path,
-        &final_summary,
-        error_count,
-        first_error_message.as_deref(),
-    )?;
-
-    println!("✓ Session saved: {}", session_id);
-    println!("Events: {}", events_path.display());
-    println!("Raw log: {}", raw_log_path.display());
-    if error_count > 0 && final_status == "succeeded" {
-        println!(
-            "! Warning: run recovered after {} Error event(s). First error: {}",
-            error_count,
-            first_error_message.unwrap_or_else(|| "(unknown)".to_string())
-        );
-    }
-
-    if final_status != "succeeded" {
-        return Err(format!("Zene run failed: {}", final_summary).into());
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "zene")]
-fn extract_finished_text(envelope: &EventEnvelope) -> Option<String> {
-    envelope
-        .payload
-        .get("data")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
-
-#[cfg(feature = "zene")]
-fn extract_error_text(envelope: &EventEnvelope) -> Option<String> {
-    if let Some(message) = envelope
-        .payload
-        .get("data")
-        .and_then(|v| v.get("message"))
-        .and_then(|v| v.as_str())
-    {
-        return Some(message.to_string());
-    }
-
-    envelope
-        .payload
-        .get("data")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
-
-#[cfg(feature = "zene")]
-fn append_zene_report_tail(
-    report_path: &Path,
-    events_path: &Path,
-    summary: &str,
-    error_count: usize,
-    first_error_message: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut report = OpenOptions::new().append(true).open(report_path)?;
-    writeln!(report)?;
-    writeln!(report, "## Zene Event Stream")?;
-    writeln!(report, "- Events: {}", events_path.display())?;
-    writeln!(report, "- Error events during run: {}", error_count)?;
-    if let Some(first_error_message) = first_error_message {
-        writeln!(report, "- First error: {}", first_error_message)?;
-    }
-    writeln!(report, "- Final summary: {}", summary)?;
-    Ok(())
-}
-
-fn cmd_run(command: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_run(command: Vec<String>, non_interactive: bool) -> Result<(), Box<dyn std::error::Error>> {
     if command.is_empty() {
         return Err("Empty command. Usage: intentloop run -- <agent-cli> [args...]".into());
     }
 
     let repo_root = std::env::current_dir()?;
-    run_session(repo_root, command, false)
+    run_session(repo_root, command, !non_interactive)
 }
 
 fn cmd_copilot(
@@ -483,6 +256,15 @@ fn run_session(
     writeln!(log_file, "[stderr]")?;
     writeln!(log_file, "{}", execution.stderr)?;
 
+    if !execution.structured_events.is_empty() {
+        let events_path = session_dir.join("events.jsonl");
+        let mut events_file = fs::File::create(&events_path)?;
+        for ev in &execution.structured_events {
+            writeln!(events_file, "{}", ev)?;
+        }
+        println!("Structured events: {}", events_path.display());
+    }
+
     let stdout_lines: Vec<String> = execution.stdout.lines().map(|line| line.to_string()).collect();
     let stderr_lines: Vec<String> = execution.stderr.lines().map(|line| line.to_string()).collect();
     let stdin_lines: Vec<String> = execution.stdin_log.lines().map(|line| line.to_string()).collect();
@@ -526,6 +308,7 @@ struct ExecutionOutput {
     stdin_log: String,
     exit_code: Option<i32>,
     success: bool,
+    structured_events: Vec<String>,
 }
 
 fn execute_non_interactive(
@@ -547,6 +330,7 @@ fn execute_non_interactive(
         stdin_log: String::new(),
         exit_code: output.status.code(),
         success: output.status.success(),
+        structured_events: Vec::new(),
     })
 }
 
@@ -555,9 +339,11 @@ fn execute_with_pty(
     command: &[String],
 ) -> Result<ExecutionOutput, Box<dyn std::error::Error>> {
     let pty_system = native_pty_system();
+    let rows: u16 = 40;
+    let cols: u16 = 120;
     let pair = pty_system.openpty(PtySize {
-        rows: 40,
-        cols: 120,
+        rows,
+        cols,
         pixel_width: 0,
         pixel_height: 0,
     })?;
@@ -580,8 +366,13 @@ fn execute_with_pty(
     let output_capture = Arc::new(Mutex::new(Vec::<u8>::new()));
     let output_capture_for_thread = Arc::clone(&output_capture);
 
+    let structured_events = Arc::new(Mutex::new(Vec::<String>::new()));
+    let structured_events_for_thread = Arc::clone(&structured_events);
+
     let output_thread = thread::spawn(move || -> std::io::Result<()> {
         let mut stdout = std::io::stdout();
+        let mut parser = vt100::Parser::new(rows, cols, 0);
+        let mut last_text = String::new();
         let mut buffer = [0_u8; 4096];
         loop {
             let read_bytes = reader.read(&mut buffer)?;
@@ -594,6 +385,39 @@ fn execute_with_pty(
                 .lock()
                 .expect("capture lock poisoned")
                 .extend_from_slice(&buffer[..read_bytes]);
+
+            // Always emit a raw output event for every chunk (guarantees events.jsonl for all commands)
+            let chunk_str = String::from_utf8_lossy(&buffer[..read_bytes]);
+            let output_event = format!(
+                r#"{{"type":"PtyOutput","data":{},"bytes":{},"ts":"{}"}}"#,
+                serde_json::to_string(&chunk_str).unwrap_or_default(),
+                read_bytes,
+                chrono::Utc::now().to_rfc3339()
+            );
+            structured_events_for_thread
+                .lock()
+                .expect("events lock poisoned")
+                .push(output_event);
+
+            // Additionally record ScreenUpdate when visible screen content changes (for TUI / full redraws)
+            parser.process(&buffer[..read_bytes]);
+            let screen = parser.screen();
+            let text = screen.contents();
+            if text != last_text {
+                let pos = screen.cursor_position();
+                let event = format!(
+                    r#"{{"type":"ScreenUpdate","text":{},"cursor_row":{},"cursor_col":{},"ts":"{}"}}"#,
+                    serde_json::to_string(&text).unwrap_or_default(),
+                    pos.0,
+                    pos.1,
+                    chrono::Utc::now().to_rfc3339()
+                );
+                structured_events_for_thread
+                    .lock()
+                    .expect("events lock poisoned")
+                    .push(event);
+                last_text = text;
+            }
         }
         Ok(())
     });
@@ -633,6 +457,7 @@ fn execute_with_pty(
 
     let stdout = String::from_utf8_lossy(&output_capture.lock().expect("capture lock poisoned")).to_string();
     let stdin_log = String::from_utf8_lossy(&input_capture.lock().expect("stdin capture lock poisoned")).to_string();
+    let events = structured_events.lock().expect("events lock poisoned").clone();
 
     Ok(ExecutionOutput {
         stdout,
@@ -640,6 +465,7 @@ fn execute_with_pty(
         stdin_log,
         exit_code: i32::try_from(status.exit_code()).ok(),
         success: status.success(),
+        structured_events: events,
     })
 }
 
