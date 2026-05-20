@@ -8,12 +8,15 @@ use std::thread;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use uuid::Uuid;
 
+mod agent_config;
+mod conversation;
 mod intent;
+mod pty;
 mod registry;
 
 #[derive(Parser)]
-#[command(name = "intentloop")]
-#[command(about = "IntentLoop Lite - local agent session recorder", long_about = None)]
+#[command(name = "intent")]
+#[command(about = "Intent - interactive agent session recorder", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -30,8 +33,11 @@ enum CopilotMode {
 enum Commands {
     /// Run agent command and record a session
     Run {
-        /// Agent command and arguments, e.g. `intentloop run -- claude code`
-        #[arg(required = true, trailing_var_arg = true)]
+        /// Agent name defined in .intentloop/agents.toml, e.g. cursor, claude, copilot
+        #[arg(long)]
+        agent: Option<String>,
+        /// Optional extra args or full command. When --agent is used without this, launches the agent interactively.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
         /// Disable PTY mode and execute in non-interactive capture mode
         #[arg(long)]
@@ -60,6 +66,12 @@ enum Commands {
         /// Session ID
         session_id: String,
     },
+    /// List recent sessions
+    List,
+    /// Attach to a running session (future)
+    Attach {
+        session_id: String,
+    },
 }
 
 fn main() {
@@ -68,11 +80,13 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Run { command, non_interactive } => cmd_run(command, non_interactive),
+        Commands::Run { agent, command, non_interactive } => cmd_run(agent, command, non_interactive),
         Commands::Copilot { prompt, mode, non_interactive, wait, args } => {
             cmd_copilot(prompt, mode, non_interactive, wait, args)
         }
         Commands::Show { session_id } => cmd_show(&session_id),
+        Commands::List => cmd_list(),
+        Commands::Attach { session_id } => cmd_attach(&session_id),
     };
 
     if let Err(e) = result {
@@ -81,13 +95,30 @@ fn main() {
     }
 }
 
-fn cmd_run(command: Vec<String>, non_interactive: bool) -> Result<(), Box<dyn std::error::Error>> {
-    if command.is_empty() {
-        return Err("Empty command. Usage: intentloop run -- <agent-cli> [args...]".into());
-    }
-
+fn cmd_run(agent: Option<String>, command: Vec<String>, non_interactive: bool) -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = std::env::current_dir()?;
-    run_session(repo_root, command, !non_interactive)
+    let config = agent_config::AgentConfig::load(&repo_root);
+
+    let final_command = if let Some(agent_name) = agent {
+        if let Some(mut profile_cmd) = config.resolve_command(&agent_name, &command, None, Some(&repo_root)) {
+            println!("▶ Launching agent '{}' in {}", agent_name, repo_root.display());
+            println!("   Command: {} {}", profile_cmd[0], profile_cmd[1..].join(" "));
+
+            profile_cmd
+        } else {
+            if command.is_empty() {
+                return Err(format!("Unknown agent '{}'. Please define it in .intent/agents.toml", agent_name).into());
+            }
+            command
+        }
+    } else {
+        if command.is_empty() {
+            return Err("Empty command. Usage: intent run --agent <name>  or  intent run -- <agent-cli> [args...]".into());
+        }
+        command
+    };
+
+    run_session(repo_root, final_command, !non_interactive)
 }
 
 fn cmd_copilot(
@@ -247,12 +278,14 @@ fn run_session(
     writeln!(log_file, "# command: {}", agent_cmd)?;
     writeln!(log_file, "# mode: {}", if interactive { "pty" } else { "non-interactive" })?;
     writeln!(log_file)?;
-    if !execution.stdin_log.is_empty() {
+    if !execution.stdin_bytes.is_empty() {
         writeln!(log_file, "[stdin]")?;
-        writeln!(log_file, "{}", execution.stdin_log)?;
+        log_file.write_all(&execution.stdin_bytes)?;
+        writeln!(log_file)?;
     }
     writeln!(log_file, "[stdout]")?;
-    writeln!(log_file, "{}", execution.stdout)?;
+    log_file.write_all(&execution.stdout_bytes)?;
+    writeln!(log_file)?;
     writeln!(log_file, "[stderr]")?;
     writeln!(log_file, "{}", execution.stderr)?;
 
@@ -263,6 +296,25 @@ fn run_session(
             writeln!(events_file, "{}", ev)?;
         }
         println!("Structured events: {}", events_path.display());
+    }
+
+    if !execution.normalized.is_empty() {
+        let norm_path = session_dir.join("terminal.normalized.jsonl");
+        let mut norm_file = fs::File::create(&norm_path)?;
+        for line in &execution.normalized {
+            writeln!(norm_file, "{}", line)?;
+        }
+        println!("VT100 normalized: {}", norm_path.display());
+    }
+
+    // 干净对话记录（vt100 屏幕 diff + stdin 行编辑）
+    if !execution.conversation.is_empty() {
+        let conv_path = session_dir.join("conversation.jsonl");
+        let mut conv_file = fs::File::create(&conv_path)?;
+        for line in &execution.conversation {
+            writeln!(conv_file, "{}", line)?;
+        }
+        println!("Conversation log: {}", conv_path.display());
     }
 
     let stdout_lines: Vec<String> = execution.stdout.lines().map(|line| line.to_string()).collect();
@@ -304,11 +356,15 @@ fn run_session(
 
 struct ExecutionOutput {
     stdout: String,
+    stdout_bytes: Vec<u8>,
     stderr: String,
     stdin_log: String,
+    stdin_bytes: Vec<u8>,
     exit_code: Option<i32>,
     success: bool,
     structured_events: Vec<String>,
+    conversation: Vec<String>,
+    normalized: Vec<String>,
 }
 
 fn execute_non_interactive(
@@ -326,146 +382,77 @@ fn execute_non_interactive(
 
     Ok(ExecutionOutput {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stdout_bytes: output.stdout,
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         stdin_log: String::new(),
+        stdin_bytes: Vec::new(),
         exit_code: output.status.code(),
         success: output.status.success(),
         structured_events: Vec::new(),
+        conversation: Vec::new(),
+        normalized: Vec::new(),
     })
 }
 
+/// 使用 100% 兼容 PTY 实现执行（支持完整交互、raw mode、动态 resize）
 fn execute_with_pty(
     repo_root: &Path,
     command: &[String],
 ) -> Result<ExecutionOutput, Box<dyn std::error::Error>> {
-    let pty_system = native_pty_system();
-    let rows: u16 = 40;
-    let cols: u16 = 120;
-    let pair = pty_system.openpty(PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
-    })?;
+    use crate::pty::CompatPtySession;
 
-    let mut cmd = CommandBuilder::new(&command[0]);
-    cmd.args(&command[1..]);
-    cmd.cwd(repo_root);
-
-    let mut child = pair.slave.spawn_command(cmd).map_err(|error| {
+    let mut session = CompatPtySession::spawn(command, repo_root).map_err(|e| {
         format!(
-            "Failed to run '{}': {}. If this is GitHub Copilot CLI, install GitHub CLI and Copilot extension first.",
-            command[0], error
+            "Failed to spawn PTY for '{}': {}. Make sure the agent CLI exists in PATH.",
+            command[0], e
         )
     })?;
-    drop(pair.slave);
 
-    let mut reader = pair.master.try_clone_reader()?;
-    let mut writer = pair.master.take_writer()?;
+    // 阻塞等待子进程结束（此时 raw mode 已启用，输入输出完全透传）
+    let status: portable_pty::ExitStatus = session.wait()?;
 
-    let output_capture = Arc::new(Mutex::new(Vec::<u8>::new()));
-    let output_capture_for_thread = Arc::clone(&output_capture);
+    // 收集记录
+    let stdout_bytes = session.stdout.lock().unwrap().clone();
+    let stdin_bytes = session.stdin.lock().unwrap().clone();
+    let events = session.events.lock().unwrap().clone();
 
-    let structured_events = Arc::new(Mutex::new(Vec::<String>::new()));
-    let structured_events_for_thread = Arc::clone(&structured_events);
+    let raw_stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
+    let stdout = strip_ansi_escapes::strip_str(&raw_stdout);
+    let stdin_log = strip_ansi_escapes::strip_str(&String::from_utf8_lossy(&stdin_bytes));
 
-    let output_thread = thread::spawn(move || -> std::io::Result<()> {
-        let mut stdout = std::io::stdout();
-        let mut parser = vt100::Parser::new(rows, cols, 0);
-        let mut last_text = String::new();
-        let mut buffer = [0_u8; 4096];
-        loop {
-            let read_bytes = reader.read(&mut buffer)?;
-            if read_bytes == 0 {
-                break;
+    let (pty_rows, pty_cols) = crossterm::terminal::size().unwrap_or((40, 120));
+
+    // vt100 回放：从原始 PTY 字节流提取屏幕快照与对话
+    let (snapshots, turns) =
+        conversation::extract_with_snapshots(&stdout_bytes, &stdin_bytes, pty_rows, pty_cols);
+    let conversation = conversation::turns_to_jsonl(&turns);
+    let normalized: Vec<String> = conversation::snapshots_to_jsonl(&snapshots);
+
+    let structured_events: Vec<String> = events
+        .iter()
+        .map(|ev| {
+            if let Some(b) = ev.bytes {
+                format!(r#"{{"type":"{}","bytes":{},"ts":"{}"}}"#, ev.kind, b, ev.ts)
+            } else {
+                format!(r#"{{"type":"{}","ts":"{}"}}"#, ev.kind, ev.ts)
             }
-            stdout.write_all(&buffer[..read_bytes])?;
-            stdout.flush()?;
-            output_capture_for_thread
-                .lock()
-                .expect("capture lock poisoned")
-                .extend_from_slice(&buffer[..read_bytes]);
+        })
+        .collect();
 
-            // Always emit a raw output event for every chunk (guarantees events.jsonl for all commands)
-            let chunk_str = String::from_utf8_lossy(&buffer[..read_bytes]);
-            let output_event = format!(
-                r#"{{"type":"PtyOutput","data":{},"bytes":{},"ts":"{}"}}"#,
-                serde_json::to_string(&chunk_str).unwrap_or_default(),
-                read_bytes,
-                chrono::Utc::now().to_rfc3339()
-            );
-            structured_events_for_thread
-                .lock()
-                .expect("events lock poisoned")
-                .push(output_event);
-
-            // Additionally record ScreenUpdate when visible screen content changes (for TUI / full redraws)
-            parser.process(&buffer[..read_bytes]);
-            let screen = parser.screen();
-            let text = screen.contents();
-            if text != last_text {
-                let pos = screen.cursor_position();
-                let event = format!(
-                    r#"{{"type":"ScreenUpdate","text":{},"cursor_row":{},"cursor_col":{},"ts":"{}"}}"#,
-                    serde_json::to_string(&text).unwrap_or_default(),
-                    pos.0,
-                    pos.1,
-                    chrono::Utc::now().to_rfc3339()
-                );
-                structured_events_for_thread
-                    .lock()
-                    .expect("events lock poisoned")
-                    .push(event);
-                last_text = text;
-            }
-        }
-        Ok(())
-    });
-
-    let input_capture = Arc::new(Mutex::new(Vec::<u8>::new()));
-    let input_capture_for_thread = Arc::clone(&input_capture);
-    thread::spawn(move || {
-        let mut stdin = std::io::stdin();
-        let mut buffer = [0_u8; 1024];
-        loop {
-            let Ok(read_bytes) = stdin.read(&mut buffer) else {
-                break;
-            };
-            if read_bytes == 0 {
-                break;
-            }
-
-            if writer.write_all(&buffer[..read_bytes]).is_err() {
-                break;
-            }
-
-            input_capture_for_thread
-                .lock()
-                .expect("stdin capture lock poisoned")
-                .extend_from_slice(&buffer[..read_bytes]);
-        }
-    });
-
-    let status = child.wait()?;
-    drop(pair.master);
-
-    if let Ok(result) = output_thread.join() {
-        if let Err(error) = result {
-            eprintln!("Warning: failed to capture PTY output: {}", error);
-        }
-    }
-
-    let stdout = String::from_utf8_lossy(&output_capture.lock().expect("capture lock poisoned")).to_string();
-    let stdin_log = String::from_utf8_lossy(&input_capture.lock().expect("stdin capture lock poisoned")).to_string();
-    let events = structured_events.lock().expect("events lock poisoned").clone();
+    let success = status.success();
+    let exit_code = if success { Some(0) } else { Some(1) };
 
     Ok(ExecutionOutput {
         stdout,
+        stdout_bytes,
         stderr: String::new(),
         stdin_log,
-        exit_code: i32::try_from(status.exit_code()).ok(),
-        success: status.success(),
-        structured_events: events,
+        stdin_bytes,
+        exit_code,
+        success,
+        structured_events,
+        conversation,
+        normalized,
     })
 }
 
@@ -500,6 +487,19 @@ fn cmd_show(session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
         println!("Report: {}", report_path.display());
     }
 
+    Ok(())
+}
+
+fn cmd_list() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = std::env::current_dir()?;
+    let registry = registry::Registry::init(&repo_root)?;
+    // 简化：实际应查询最近 N 条
+    println!("Use `intentloop show <id>` to inspect sessions. Full list coming soon.");
+    Ok(())
+}
+
+fn cmd_attach(session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Attach to session {} (not yet implemented, will support ring buffer replay)", session_id);
     Ok(())
 }
 

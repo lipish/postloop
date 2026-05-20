@@ -1,0 +1,28 @@
+# IntentLoop Agent Profiles
+# Copy this file to .intentloop/agents.toml and customize
+
+# Interactive agent profiles (recommended for Cursor, Claude, etc.)
+# Usage: intentloop run --agent cursor
+
+[agents.cursor]
+command = "cursor"
+args = []
+shell_setup = "source .venv/bin/activate || true"
+env_whitelist = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+supports_tmux = false
+
+[agents.claude]
+command = "claude"
+args = []
+shell_setup = ""
+env_whitelist = ["ANTHROPIC_API_KEY"]
+supports_tmux = true
+
+# One-shot or interactive Copilot
+[agents.copilot]
+command = "gh"
+args = ["copilot", "suggest"]
+env_whitelist = []
+# prompt_template only used when you pass an explicit prompt
+prompt_template = "{prompt}"
+supports_tmux = false
