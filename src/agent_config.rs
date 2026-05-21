@@ -14,7 +14,9 @@ pub struct AgentProfile {
     pub env_whitelist: Vec<String>,
     #[serde(default)]
     pub prompt_template: Option<String>,
+    /// Reserved for future tmux-backed session attach.
     #[serde(default)]
+    #[allow(dead_code)]
     pub supports_tmux: bool,
     /// 为 true 时在命令末尾追加工作区路径（也可用 args 里的 "{cwd}" 占位符）
     #[serde(default)]
@@ -71,6 +73,43 @@ impl AgentConfig {
         self.agents.get(name)
     }
 
+    /// Collect whitelisted environment variables from the current process.
+    pub fn build_env(&self, name: &str) -> HashMap<String, String> {
+        let Some(profile) = self.get(name) else {
+            return HashMap::new();
+        };
+
+        profile
+            .env_whitelist
+            .iter()
+            .filter_map(|key| std::env::var(key).ok().map(|value| (key.clone(), value)))
+            .collect()
+    }
+
+    /// Optionally wrap the command with a shell setup script.
+    pub fn apply_shell_setup(&self, name: &str, cmd: Vec<String>) -> Vec<String> {
+        let Some(setup) = self.get(name).and_then(|p| p.shell_setup.as_deref()) else {
+            return cmd;
+        };
+
+        if setup.trim().is_empty() || cmd.is_empty() {
+            return cmd;
+        }
+
+        let program = shell_escape(&cmd[0]);
+        let args = cmd[1..]
+            .iter()
+            .map(|arg| shell_escape(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        vec![
+            "sh".to_string(),
+            "-lc".to_string(),
+            format!("{setup}; exec {program} {args}"),
+        ]
+    }
+
     /// Build the command vector for the given agent.
     /// If extra_args is empty, just use profile.command + profile.args (interactive mode).
     /// If prompt is provided, append it using prompt_template if present.
@@ -105,6 +144,33 @@ impl AgentConfig {
 
         Some(cmd)
     }
+}
+
+fn substitute_cwd(args: &[String], cwd: Option<&Path>) -> Vec<String> {
+    let cwd_str = cwd.map(|p| p.to_string_lossy().to_string());
+    args.iter()
+        .map(|arg| {
+            if arg.contains("{cwd}") {
+                arg.replace("{cwd}", cwd_str.as_deref().unwrap_or("."))
+            } else {
+                arg.clone()
+            }
+        })
+        .collect()
+}
+
+fn shell_escape(arg: &str) -> String {
+    if arg.is_empty() {
+        return "''".to_string();
+    }
+    if arg
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '@' | '%' | '+' | '=' | ',' | '.' | ':' | '-' | '_'))
+    {
+        return arg.to_string();
+    }
+
+    format!("'{}'", arg.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
@@ -142,17 +208,4 @@ mod tests {
         let cmd = config.resolve_command("agent", &[], None, Some(cwd)).unwrap();
         assert_eq!(cmd, vec!["agent", "/tmp/myproject"]);
     }
-}
-
-fn substitute_cwd(args: &[String], cwd: Option<&Path>) -> Vec<String> {
-    let cwd_str = cwd.map(|p| p.to_string_lossy().to_string());
-    args.iter()
-        .map(|arg| {
-            if arg.contains("{cwd}") {
-                arg.replace("{cwd}", cwd_str.as_deref().unwrap_or("."))
-            } else {
-                arg.clone()
-            }
-        })
-        .collect()
 }

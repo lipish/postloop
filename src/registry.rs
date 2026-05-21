@@ -1,14 +1,15 @@
 use chrono::Utc;
-use rusqlite::{params, Connection};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionSummary {
     pub id: String,
     pub intent_id: String,
     pub intent_title: String,
     pub agent_cmd: String,
+    pub cwd: String,
     pub status: String,
     pub start_at: String,
     pub end_at: Option<String>,
@@ -17,8 +18,15 @@ pub struct SessionSummary {
     pub thought_count: i64,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ThoughtEvent {
+    pub seq: i64,
+    pub ts: String,
+    pub event_type: String,
+    pub content: String,
+}
+
 pub struct Registry {
-    db_path: PathBuf,
     storage_root: PathBuf,
 }
 
@@ -28,45 +36,9 @@ impl Registry {
         let sessions_dir = storage_root.join("sessions");
         fs::create_dir_all(&sessions_dir)?;
 
-        let db_path = storage_root.join("db.sqlite");
-        let conn = Connection::open(&db_path)?;
-        conn.execute_batch(
-            "
-            PRAGMA journal_mode=WAL;
-
-            CREATE TABLE IF NOT EXISTS sessions (
-              id TEXT PRIMARY KEY,
-              intent_id TEXT NOT NULL,
-              intent_title TEXT NOT NULL,
-              agent_cmd TEXT NOT NULL,
-              cwd TEXT NOT NULL,
-              start_at TEXT NOT NULL,
-              end_at TEXT,
-              status TEXT NOT NULL,
-              exit_code INTEGER,
-              log_path TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS thought_events (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              session_id TEXT NOT NULL,
-              seq INTEGER NOT NULL,
-              ts TEXT NOT NULL,
-              event_type TEXT NOT NULL,
-              content TEXT NOT NULL,
-              FOREIGN KEY(session_id) REFERENCES sessions(id)
-            );
-            ",
-        )?;
-
         Ok(Self {
-            db_path,
             storage_root,
         })
-    }
-
-    fn connect(&self) -> Result<Connection, Box<dyn std::error::Error>> {
-        Ok(Connection::open(&self.db_path)?)
     }
 
     pub fn create_session(
@@ -78,20 +50,26 @@ impl Registry {
         cwd: &Path,
         log_path: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO sessions (id, intent_id, intent_title, agent_cmd, cwd, start_at, status, log_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', ?7)",
-            params![
-                session_id,
-                intent_id,
-                intent_title,
-                agent_cmd,
-                cwd.to_string_lossy().to_string(),
-                Utc::now().to_rfc3339(),
-                log_path.to_string_lossy().to_string()
-            ],
-        )?;
+        let meta = SessionSummary {
+            id: session_id.to_string(),
+            intent_id: intent_id.to_string(),
+            intent_title: intent_title.to_string(),
+            agent_cmd: agent_cmd.to_string(),
+            cwd: cwd.to_string_lossy().to_string(),
+            status: "running".to_string(),
+            start_at: Utc::now().to_rfc3339(),
+            end_at: None,
+            exit_code: None,
+            log_path: log_path.to_string_lossy().to_string(),
+            thought_count: 0,
+        };
+
+        let session_dir = self.session_dir_path(session_id);
+        fs::create_dir_all(&session_dir)?;
+
+        let meta_path = session_dir.join("meta.json");
+        let content = serde_json::to_string_pretty(&meta)?;
+        fs::write(meta_path, content)?;
         Ok(())
     }
 
@@ -101,32 +79,54 @@ impl Registry {
         event_type: &str,
         lines: &[String],
         start_seq: i64,
-    ) -> Result<i64, Box<dyn std::error::Error>> {
-        let mut conn = self.connect()?;
-        let tx = conn.transaction()?;
-        let mut seq = start_seq;
+    ) -> Result<(i64, i64), Box<dyn std::error::Error>> {
+        let session_dir = self.session_dir_path(session_id);
+        let events_path = session_dir.join("thought_events.jsonl");
 
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&events_path)?;
+
+        let mut seq = start_seq;
+        let mut added_count = 0;
         for line in lines {
             if line.trim().is_empty() {
                 continue;
             }
 
-            tx.execute(
-                "INSERT INTO thought_events (session_id, seq, ts, event_type, content)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    session_id,
-                    seq,
-                    Utc::now().to_rfc3339(),
-                    event_type,
-                    line
-                ],
-            )?;
+            let ev = ThoughtEvent {
+                seq,
+                ts: Utc::now().to_rfc3339(),
+                event_type: event_type.to_string(),
+                content: line.clone(),
+            };
+
+            let serialized = serde_json::to_string(&ev)?;
+            writeln!(file, "{}", serialized)?;
             seq += 1;
+            added_count += 1;
         }
 
-        tx.commit()?;
-        Ok(seq)
+        Ok((seq, added_count))
+    }
+
+    pub fn set_thought_count(
+        &self,
+        session_id: &str,
+        thought_count: i64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let meta_path = self.session_dir_path(session_id).join("meta.json");
+        if !meta_path.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(&meta_path)?;
+        let mut meta: SessionSummary = serde_json::from_str(&content)?;
+        meta.thought_count = thought_count;
+        let new_content = serde_json::to_string_pretty(&meta)?;
+        fs::write(&meta_path, new_content)?;
+        Ok(())
     }
 
     pub fn complete_session(
@@ -135,20 +135,16 @@ impl Registry {
         status: &str,
         exit_code: Option<i32>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let conn = self.connect()?;
-        conn.execute(
-            "UPDATE sessions
-             SET status = ?2,
-                 end_at = ?3,
-                 exit_code = ?4
-             WHERE id = ?1",
-            params![
-                session_id,
-                status,
-                Utc::now().to_rfc3339(),
-                exit_code.map(|v| v as i64)
-            ],
-        )?;
+        let meta_path = self.session_dir_path(session_id).join("meta.json");
+        if meta_path.exists() {
+            let content = fs::read_to_string(&meta_path)?;
+            let mut meta: SessionSummary = serde_json::from_str(&content)?;
+            meta.status = status.to_string();
+            meta.end_at = Some(Utc::now().to_rfc3339());
+            meta.exit_code = exit_code.map(|v| v as i64);
+            let new_content = serde_json::to_string_pretty(&meta)?;
+            fs::write(&meta_path, new_content)?;
+        }
         Ok(())
     }
 
@@ -156,31 +152,40 @@ impl Registry {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionSummary>, Box<dyn std::error::Error>> {
-        let conn = self.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT s.id, s.intent_id, s.intent_title, s.agent_cmd, s.status, s.start_at, s.end_at, s.exit_code, s.log_path,
-                    (SELECT COUNT(*) FROM thought_events t WHERE t.session_id = s.id) as thought_count
-             FROM sessions s
-             WHERE s.id = ?1",
-        )?;
+        let meta_path = self.session_dir_path(session_id).join("meta.json");
+        if !meta_path.exists() {
+            return Ok(None);
+        }
+        let content = fs::read_to_string(&meta_path)?;
+        let meta: SessionSummary = serde_json::from_str(&content)?;
+        Ok(Some(meta))
+    }
 
-        let mut rows = stmt.query(params![session_id])?;
-        if let Some(row) = rows.next()? {
-            return Ok(Some(SessionSummary {
-                id: row.get(0)?,
-                intent_id: row.get(1)?,
-                intent_title: row.get(2)?,
-                agent_cmd: row.get(3)?,
-                status: row.get(4)?,
-                start_at: row.get(5)?,
-                end_at: row.get(6)?,
-                exit_code: row.get(7)?,
-                log_path: row.get(8)?,
-                thought_count: row.get(9)?,
-            }));
+    pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, Box<dyn std::error::Error>> {
+        let sessions_dir = self.storage_root.join("sessions");
+        if !sessions_dir.exists() {
+            return Ok(Vec::new());
         }
 
-        Ok(None)
+        let mut sessions = Vec::new();
+        for entry in fs::read_dir(sessions_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                let meta_path = path.join("meta.json");
+                if meta_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&meta_path) {
+                        if let Ok(meta) = serde_json::from_str::<SessionSummary>(&content) {
+                            sessions.push(meta);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by start_at descending
+        sessions.sort_by(|a, b| b.start_at.cmp(&a.start_at));
+        Ok(sessions)
     }
 
     pub fn session_log_path(&self, session_id: &str) -> PathBuf {

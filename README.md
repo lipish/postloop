@@ -7,12 +7,12 @@ Intent - Interactive Agent Session Recorder
 `intent` is a lightweight Rust CLI for personal AI-assisted development.
 It wraps any agent (Cursor, Claude, Copilot, etc.), records the full interactive session, and stores:
 
-- Session metadata
+- Session metadata (`meta.json`)
 - Intent reference from `INTENT.md`
 - Raw terminal output
+- Structured events, conversation, and VT100 snapshots
+- Ring buffer for tail replay
 - Minimal Markdown report
-
-This is the Phase 1-Lite scope: `run` + `copilot` + `show` with full PTY interaction and structured event capture.
 
 ## Install
 
@@ -68,14 +68,15 @@ intent copilot
 
 ```bash
 intent show <session-id>
+intent list
+intent attach <session-id>   # replay ring buffer tail
 ```
-
 
 ## Commands
 
-- `intentloop run -- <agent-cli> [args...]`
-  - Runs the command and records a session in `~/.intentloop/` (or `$INTENTLOOP_HOME`).
-- `intentloop copilot [--mode auto|copilot|agent-task] [--prompt "..."] [-- <gh args...>]`
+- `intent run [--agent <name>] [--non-interactive] [-- <command...>]`
+  - Runs the command and records a session.
+- `intent copilot [--mode auto|copilot|agent-task] [--prompt "..."] [--wait] [--non-interactive] [-- <gh args...>]`
   - Runs GitHub CLI agent command in a recorded session.
   - Uses PTY interactive mode by default (full terminal interaction + transcript capture).
   - Add `--non-interactive` to use one-shot capture mode.
@@ -89,36 +90,49 @@ Wait for final result example:
 ```bash
 intent copilot --mode agent-task --wait
 ```
-- `intent show <session-id>`
-  - Shows session metadata and log/report paths.
+
+- `intent show <session-id>` — show session metadata and artifact paths
+- `intent list` — list recent sessions
+- `intent attach <session-id>` — print the saved ring buffer tail for a completed PTY session
 
 ## Storage Layout
 
 ```text
-~/.intent/                  # or $INTENT_HOME
-  db.sqlite
+~/.intentloop/              # or $INTENTLOOP_HOME
   sessions/
     <session_id>/
+      meta.json
       terminal.raw.log
+      thought_events.jsonl
       events.jsonl
+      conversation.jsonl
+      terminal.normalized.jsonl
+      terminal.ring.bin
       report.md
 ```
 
 You can override the storage root with:
 
 ```bash
-export INTENT_HOME=/path/to/your/session-store
+export INTENTLOOP_HOME=/path/to/your/session-store
 ```
+
+Agent profiles are loaded from `.intent/agents.toml` (walk up from cwd), `~/.intent/agents.toml`, or legacy `.intentloop/agents.toml`.
 
 ## Current Scope
 
 Included:
+
 - Interactive PTY session recording (`intent run --agent xxx`)
-- SQLite + raw log + structured events
+- JSON session store + raw log + structured events
+- Conversation extraction via vt100 replay
+- Ring buffer tail replay via `intent attach`
 - Minimal Markdown report
-- Agent profiles via `.intent/agents.toml`
+- Agent profiles via `.intent/agents.toml` (`env_whitelist`, `shell_setup`, etc.)
 
 Not included yet:
+
+- Live attach to running sessions
 - Rewind / snapshot restore
 - Git hooks
 - Semantic search
@@ -126,7 +140,7 @@ Not included yet:
 ## Environment Variables (.env)
 
 - Auto-loads `.env` from current directory (via `dotenvy`).
-- Quick start: `cp .env.example .env` and fill your API key/model settings.
+- Agent `env_whitelist` in `agents.toml` passes selected vars into the spawned process.
 
 Example:
 

@@ -1,11 +1,13 @@
 use chrono::Utc;
+use serde::Serialize;
+
 use crate::pty::content_filter::filter_content_lines;
 use crate::pty::terminal_input::{parse_submitted_lines, strip_terminal_escapes};
 use crate::pty::vt100_recorder::{
     lines_added, unique_content_lines, stdout_has_ansi, ScreenSnapshot, Vt100Recorder,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConversationTurn {
     pub role: String,
     pub text: String,
@@ -127,98 +129,68 @@ fn parse_stdin_submits(stdin: &[u8]) -> Vec<String> {
 pub fn turns_to_jsonl(turns: &[ConversationTurn]) -> Vec<String> {
     turns
         .iter()
-        .map(|t| {
-            let escaped = t
-                .text
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace('\n', "\\n");
-            format!(r#"{{"role":"{}","text":"{}","ts":"{}"}}"#, t.role, escaped, t.ts)
-        })
+        .filter_map(|t| serde_json::to_string(t).ok())
         .collect()
 }
 
 pub fn snapshots_to_jsonl(snapshots: &[ScreenSnapshot]) -> Vec<String> {
     snapshots
         .iter()
-        .map(|s| {
-            let escaped = s
-                .contents
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace('\n', "\\n");
-            format!(r#"{{"seq":{},"screen":"{}"}}"#, s.seq, escaped)
-        })
+        .filter_map(|s| serde_json::to_string(s).ok())
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    fn split_raw_log(log: &[u8]) -> (Vec<u8>, Vec<u8>) {
-        let stdin_marker = b"[stdin]\n";
-        let stdout_marker = b"[stdout]\n";
-        let stderr_marker = b"[stderr]";
-        let stdin_start = log
-            .windows(stdin_marker.len())
-            .position(|w| w == stdin_marker)
-            .map(|i| i + stdin_marker.len())
-            .unwrap();
-        let stdout_start = log
-            .windows(stdout_marker.len())
-            .position(|w| w == stdout_marker)
-            .map(|i| i + stdout_marker.len())
-            .unwrap();
-        let stdout_end = log
-            .windows(stderr_marker.len())
-            .position(|w| w == stderr_marker)
-            .unwrap_or(log.len());
-        (
-            log[stdin_start..stdout_start - stdout_marker.len()].to_vec(),
-            log[stdout_start..stdout_end].to_vec(),
-        )
-    }
 
     #[test]
-    fn vt100_extracts_sqlite_answer() {
-        let log = fs::read(
-            "/Users/xinference/.intentloop/sessions/019e440e-7f24-7ce3-9c51-e0f68da0a444/terminal.raw.log",
-        )
-        .unwrap();
-        let (stdin, stdout) = split_raw_log(&log);
-        let turns = extract_conversation(&stdout, &stdin, 40, 120);
+    fn vt100_extracts_mock_sqlite_answer() {
+        // Mock stdin: user inputs "What is SQLite?\n"
+        let stdin = b"What is SQLite?\n";
+        
+        // Mock stdout: ANSI sequences, user prompt echoed, then agent response with "SQLite" and "嵌入式"
+        let stdout = b"\x1b[2J\x1b[HWhat is SQLite?\r\nSQLite is a lightweight \xe5\xb5\x8c\xe5\x85\xa5\xe5\xbc\x8f database engine.\r\n";
+        
+        let turns = extract_conversation(stdout, stdin, 24, 80);
+        
+        let user: Vec<_> = turns.iter().filter(|t| t.role == "user").collect();
+        assert_eq!(user.len(), 1);
+        assert_eq!(user[0].text, "What is SQLite?");
+        
         let agent: String = turns
             .iter()
             .filter(|t| t.role == "agent")
             .map(|t| t.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
+        
         assert!(agent.contains("SQLite"), "agent text: {}", agent);
         assert!(agent.contains("嵌入式"), "agent text: {}", agent);
     }
 
     #[test]
-    fn filters_agent_tui_noise_from_real_session() {
-        let log = fs::read(
-            "/Users/xinference/.intentloop/sessions/019e4426-e455-7d90-a735-681b04cf6394/terminal.raw.log",
-        )
-        .unwrap();
-        let (stdin, stdout) = split_raw_log(&log);
-        let turns = extract_conversation(&stdout, &stdin, 40, 120);
-
-        let users: Vec<_> = turns.iter().filter(|t| t.role == "user").collect();
-        assert_eq!(users.len(), 1, "expected one user turn, got {:?}", users);
-        assert!(users[0].text.contains("优化"));
-        assert!(!users[0].text.contains("rgb:"));
-
+    fn filters_agent_tui_noise_from_mock_session() {
+        // Mock stdin: user inputs "优化代码\n"
+        let stdin = b"\x1b]11;rgb:ffff/fcfc/f0f0\x07\x1b[Is\x7f\xe4\xbc\x98\xe5\x8c\x96\xe4\xbb\xa3\xe7\xa0\x81\n";
+        
+        // Mock stdout contains TUI noise like Globbing/Grepping, and then "优化空间"
+        let stdout = b"Globbing \"**/*\" in .\r\nGrepping for keywords...\r\n\xe4\xbc\x98\xe5\x8c\x96\xe7\xa0\x81\r\n\xe4\xbc\x98\xe5\x8c\x96\xe7\xa9\xba\xe9\x97\xb4 is huge.\r\n";
+        
+        let turns = extract_conversation(stdout, stdin, 24, 80);
+        
+        let user: Vec<_> = turns.iter().filter(|t| t.role == "user").collect();
+        assert_eq!(user.len(), 1);
+        assert!(user[0].text.contains("优化"));
+        assert!(!user[0].text.contains("rgb:"));
+        
         let agent: String = turns
             .iter()
             .filter(|t| t.role == "agent")
             .map(|t| t.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
+            
         assert!(agent.contains("优化空间"), "agent text: {}", agent);
         assert!(!agent.contains("Globbing"), "agent text: {}", agent);
         assert!(!agent.contains("Grepping"), "agent text: {}", agent);

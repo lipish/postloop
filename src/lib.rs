@@ -1,10 +1,9 @@
-// Library modules for testing
-pub mod config;
-pub mod logger;
-pub mod hook;
-pub mod builder;
-pub mod deployer;
-pub mod syncer;
-pub mod rollback;
+pub mod agent_config;
+pub mod conversation;
+pub mod copilot;
 pub mod intent;
+pub mod pty;
 pub mod registry;
+pub mod session;
+
+pub use intent::{build_copilot_prompt, load_intent, IntentInfo};

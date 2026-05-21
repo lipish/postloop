@@ -1,12 +1,15 @@
 //! 将 PTY stdout 字节流喂入 vt100 虚拟终端，提取稳定屏幕快照。
 
+use serde::Serialize;
+
 use crate::pty::content_filter::{filter_content_lines, is_noise_line};
 
 use vt100::Parser;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScreenSnapshot {
     pub seq: usize,
+    #[serde(rename = "screen")]
     pub contents: String,
 }
 
