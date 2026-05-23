@@ -117,7 +117,7 @@ You can override the storage root with:
 export INTENTLOOP_HOME=/path/to/your/session-store
 ```
 
-Agent profiles are loaded from `.intent/agents.toml` (walk up from cwd), `~/.intent/agents.toml`, or legacy `.intentloop/agents.toml`.
+Agent profiles (config) are loaded from `.intent/agents.toml` (walk up), `~/.intent/agents.toml`, or legacy `.intentloop/agents.toml`. Session data (recordings) always defaults to `~/.intentloop` (or `$INTENTLOOP_HOME`), keeping repos clean; set the env var for per-repo storage and ignore it in git.
 
 ## Current Scope
 

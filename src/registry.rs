@@ -31,7 +31,7 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn init(repo_root: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn init(repo_root: &Path) -> Result<Self, anyhow::Error> {
         let storage_root = resolve_storage_root(repo_root);
         let sessions_dir = storage_root.join("sessions");
         fs::create_dir_all(&sessions_dir)?;
@@ -49,7 +49,7 @@ impl Registry {
         agent_cmd: &str,
         cwd: &Path,
         log_path: &Path,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), anyhow::Error> {
         let meta = SessionSummary {
             id: session_id.to_string(),
             intent_id: intent_id.to_string(),
@@ -79,7 +79,7 @@ impl Registry {
         event_type: &str,
         lines: &[String],
         start_seq: i64,
-    ) -> Result<(i64, i64), Box<dyn std::error::Error>> {
+    ) -> Result<(i64, i64), anyhow::Error> {
         let session_dir = self.session_dir_path(session_id);
         let events_path = session_dir.join("thought_events.jsonl");
 
@@ -115,7 +115,7 @@ impl Registry {
         &self,
         session_id: &str,
         thought_count: i64,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), anyhow::Error> {
         let meta_path = self.session_dir_path(session_id).join("meta.json");
         if !meta_path.exists() {
             return Ok(());
@@ -134,7 +134,7 @@ impl Registry {
         session_id: &str,
         status: &str,
         exit_code: Option<i32>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), anyhow::Error> {
         let meta_path = self.session_dir_path(session_id).join("meta.json");
         if meta_path.exists() {
             let content = fs::read_to_string(&meta_path)?;
@@ -151,7 +151,7 @@ impl Registry {
     pub fn get_session(
         &self,
         session_id: &str,
-    ) -> Result<Option<SessionSummary>, Box<dyn std::error::Error>> {
+    ) -> Result<Option<SessionSummary>, anyhow::Error> {
         let meta_path = self.session_dir_path(session_id).join("meta.json");
         if !meta_path.exists() {
             return Ok(None);
@@ -161,7 +161,7 @@ impl Registry {
         Ok(Some(meta))
     }
 
-    pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, Box<dyn std::error::Error>> {
+    pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, anyhow::Error> {
         let sessions_dir = self.storage_root.join("sessions");
         if !sessions_dir.exists() {
             return Ok(Vec::new());
@@ -202,6 +202,9 @@ impl Registry {
 }
 
 fn resolve_storage_root(repo_root: &Path) -> PathBuf {
+    // 会话数据（sessions/）默认隔离在用户全局 ~/.intentloop 下，避免污染仓库。
+    // 配置（agents.toml）走独立逻辑：优先 .intent/（支持walk up），其次 ~/.intent/，兼容 .intentloop/。
+    // 如需 per-repo 会话存储，显式 export INTENTLOOP_HOME=/path/to/local-dir（建议加入 .gitignore）。
     if let Ok(custom_root) = std::env::var("INTENTLOOP_HOME") {
         let custom_root = custom_root.trim();
         if !custom_root.is_empty() {
@@ -216,5 +219,6 @@ fn resolve_storage_root(repo_root: &Path) -> PathBuf {
         }
     }
 
+    // 无 HOME 环境（如某些容器）下的最后回退：放 repo/.intent/sessions（该目录通常已在 .gitignore）
     repo_root.join(".intent")
 }

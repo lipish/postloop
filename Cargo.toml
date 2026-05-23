@@ -19,6 +19,7 @@ signal-hook = "0.3"
 dotenvy = "0.15"
 vt100 = "0.15"
 strip-ansi-escapes = "0.2"
+anyhow = "1"
 
 [lib]
 name = "intent"
