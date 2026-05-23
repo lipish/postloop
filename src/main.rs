@@ -99,7 +99,7 @@ fn cmd_copilot(
     non_interactive: bool,
     wait: bool,
     args: Vec<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let intent = intent::load_intent(&repo_root);
 

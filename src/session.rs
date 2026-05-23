@@ -11,6 +11,8 @@ use crate::intent;
 use crate::pty::{CompatPtySession, PtyEvent};
 use crate::registry::Registry;
 
+use anyhow::anyhow;
+
 pub struct ExecutionOutput {
     pub stdout: String,
     pub stdout_bytes: Vec<u8>,
@@ -23,6 +25,9 @@ pub struct ExecutionOutput {
     pub conversation: Vec<String>,
     pub normalized: Vec<String>,
     pub ring_buffer: Vec<u8>,
+    /// PTY 模式下原始 stdout/stdin 的磁盘文件路径（流式捕获产物，可用于超大日志事后分析）
+    pub stdout_raw_path: Option<std::path::PathBuf>,
+    pub stdin_raw_path: Option<std::path::PathBuf>,
 }
 
 pub fn run_session(
@@ -30,7 +35,7 @@ pub fn run_session(
     command: Vec<String>,
     interactive: bool,
     extra_env: &HashMap<String, String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     let registry = Registry::init(&repo_root)?;
     let intent = intent::load_intent(&repo_root);
 
@@ -57,7 +62,21 @@ pub fn run_session(
     }
 
     let execution = if interactive {
-        execute_with_pty(&repo_root, &command, extra_env)?
+        // 为 PTY 交互会话创建原始流式捕获文件（核心内存优化）
+        let stdout_raw_path = session_dir.join("terminal.stdout.raw");
+        let stdin_raw_path = session_dir.join("terminal.stdin.raw");
+        let stdout_file = fs::File::create(&stdout_raw_path)?;
+        let stdin_file = fs::File::create(&stdin_raw_path)?;
+
+        execute_with_pty(
+            &repo_root,
+            &command,
+            extra_env,
+            stdout_raw_path,
+            stdin_raw_path,
+            stdout_file,
+            stdin_file,
+        )?
     } else {
         execute_non_interactive(&repo_root, &command, extra_env)?
     };
@@ -113,6 +132,13 @@ pub fn run_session(
         println!("Ring buffer: {}", ring_path.display());
     }
 
+    if let Some(p) = &execution.stdout_raw_path {
+        println!("Raw stdout stream: {}", p.display());
+    }
+    if let Some(p) = &execution.stdin_raw_path {
+        println!("Raw stdin stream: {}", p.display());
+    }
+
     let stdout_lines: Vec<String> = execution.stdout.lines().map(str::to_string).collect();
     let stderr_lines: Vec<String> = execution.stderr.lines().map(str::to_string).collect();
     let stdin_lines: Vec<String> = execution.stdin_log.lines().map(str::to_string).collect();
@@ -144,14 +170,13 @@ pub fn run_session(
     println!("Raw log: {}", log_path.display());
 
     if !execution.success {
-        return Err(format!(
+        return Err(anyhow!(
             "Agent command exited with status {}",
             execution
                 .exit_code
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "terminated by signal".to_string())
-        )
-        .into());
+        ));
     }
 
     Ok(())
@@ -161,7 +186,7 @@ pub fn cmd_run(
     agent: Option<String>,
     command: Vec<String>,
     non_interactive: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let config = AgentConfig::load(&repo_root);
     let mut extra_env = HashMap::new();
@@ -175,13 +200,13 @@ pub fn cmd_run(
             config.apply_shell_setup(&agent_name, profile_cmd)
         } else {
             if command.is_empty() {
-                return Err(format!("Unknown agent '{}'. Please define it in .intent/agents.toml", agent_name).into());
+                return Err(anyhow!("Unknown agent '{}'. Please define it in .intent/agents.toml", agent_name));
             }
             command
         }
     } else {
         if command.is_empty() {
-            return Err("Empty command. Usage: intent run --agent <name>  or  intent run -- <agent-cli> [args...]".into());
+            return Err(anyhow!("Empty command. Usage: intent run --agent <name>  or  intent run -- <agent-cli> [args...]"));
         }
         command
     };
@@ -189,11 +214,11 @@ pub fn cmd_run(
     run_session(repo_root, final_command, !non_interactive, &extra_env)
 }
 
-pub fn cmd_show(session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn cmd_show(session_id: &str) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;
     let Some(session) = registry.get_session(session_id)? else {
-        return Err(format!("Session not found: {}", session_id).into());
+        return Err(anyhow!("Session not found: {}", session_id));
     };
 
     println!("Session: {}", session.id);
@@ -229,7 +254,7 @@ pub fn cmd_show(session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn cmd_list() -> Result<(), Box<dyn std::error::Error>> {
+pub fn cmd_list() -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;
     let sessions = registry.list_sessions()?;
@@ -252,24 +277,23 @@ pub fn cmd_list() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn cmd_attach(session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn cmd_attach(session_id: &str) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;
     let Some(session) = registry.get_session(session_id)? else {
-        return Err(format!("Session not found: {}", session_id).into());
+        return Err(anyhow!("Session not found: {}", session_id));
     };
 
     if session.status == "running" {
-        return Err("Live attach is not yet supported. Wait for the session to finish.".into());
+        return Err(anyhow!("Live attach is not yet supported. Wait for the session to finish."));
     }
 
     let ring_path = registry.session_dir_path(session_id).join("terminal.ring.bin");
     if !ring_path.exists() {
-        return Err(format!(
+        return Err(anyhow!(
             "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
             session_id
-        )
-        .into());
+        ));
     }
 
     let ring = fs::read(&ring_path)?;
@@ -291,7 +315,7 @@ fn execute_non_interactive(
     repo_root: &Path,
     command: &[String],
     extra_env: &HashMap<String, String>,
-) -> Result<ExecutionOutput, Box<dyn std::error::Error>> {
+) -> Result<ExecutionOutput, anyhow::Error> {
     let program = &command[0];
     let args = &command[1..];
     let mut cmd = Command::new(program);
@@ -301,7 +325,7 @@ fn execute_non_interactive(
     }
 
     let output = cmd.output().map_err(|error| {
-        format!(
+        anyhow!(
             "Failed to run '{}': {}. If this is GitHub Copilot CLI, install GitHub CLI and Copilot extension first.",
             program, error
         )
@@ -319,6 +343,8 @@ fn execute_non_interactive(
         conversation: Vec::new(),
         normalized: Vec::new(),
         ring_buffer: Vec::new(),
+        stdout_raw_path: None,
+        stdin_raw_path: None,
     })
 }
 
@@ -326,16 +352,31 @@ fn execute_with_pty(
     repo_root: &Path,
     command: &[String],
     extra_env: &HashMap<String, String>,
-) -> Result<ExecutionOutput, Box<dyn std::error::Error>> {
-    let mut session = CompatPtySession::spawn(command, repo_root, extra_env).map_err(|e| {
-        format!(
+    stdout_raw_path: std::path::PathBuf,
+    stdin_raw_path: std::path::PathBuf,
+    stdout_capture: std::fs::File,
+    stdin_capture: std::fs::File,
+) -> Result<ExecutionOutput, anyhow::Error> {
+    let mut session = CompatPtySession::spawn(
+        command,
+        repo_root,
+        extra_env,
+        Some(stdout_capture),
+        Some(stdin_capture),
+    )
+    .map_err(|e| {
+        anyhow!(
             "Failed to spawn PTY for '{}': {}. Make sure the agent CLI exists in PATH.",
             command[0], e
         )
     })?;
 
     let status = session.wait()?;
-    let (stdout_bytes, stdin_bytes, events, ring_buffer) = session.take_captures();
+    let (events, ring_buffer) = session.take_captures();
+
+    // PTY 结束 → 从磁盘文件读取完整原始流（此时才短暂占用内存，用于对话提取等后处理）
+    let stdout_bytes = std::fs::read(&stdout_raw_path).unwrap_or_default();
+    let stdin_bytes = std::fs::read(&stdin_raw_path).unwrap_or_default();
 
     let raw_stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
     let stdout = strip_ansi_escapes::strip_str(&raw_stdout);
@@ -360,6 +401,8 @@ fn execute_with_pty(
         conversation,
         normalized,
         ring_buffer,
+        stdout_raw_path: Some(stdout_raw_path),
+        stdin_raw_path: Some(stdin_raw_path),
     })
 }
 
@@ -370,7 +413,7 @@ fn events_to_jsonl(events: &[PtyEvent]) -> Vec<String> {
         .collect()
 }
 
-fn generate_min_report(registry: &Registry, session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn generate_min_report(registry: &Registry, session_id: &str) -> Result<(), anyhow::Error> {
     let Some(session) = registry.get_session(session_id)? else {
         return Ok(());
     };
