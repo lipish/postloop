@@ -31,7 +31,8 @@ pub fn build_gh_agent_command(
             }
 
             if args.is_empty() {
-                let final_prompt = prompt.unwrap_or_else(|| intent::build_copilot_prompt(intent_info));
+                let final_prompt =
+                    prompt.unwrap_or_else(|| intent::build_copilot_prompt(intent_info));
                 cmd.push("suggest".to_string());
                 cmd.push(final_prompt);
             } else {
@@ -42,7 +43,8 @@ pub fn build_gh_agent_command(
             cmd.push("agent-task".to_string());
 
             if args.is_empty() {
-                let final_prompt = prompt.unwrap_or_else(|| intent::build_copilot_prompt(intent_info));
+                let final_prompt =
+                    prompt.unwrap_or_else(|| intent::build_copilot_prompt(intent_info));
                 cmd.push("create".to_string());
                 cmd.push(final_prompt);
                 if wait {
@@ -64,7 +66,11 @@ pub fn build_gh_agent_command(
     cmd
 }
 
-pub fn resolve_copilot_mode(repo_root: &Path, mode: CopilotMode, first_arg: Option<&str>) -> CopilotMode {
+pub fn resolve_copilot_mode(
+    repo_root: &Path,
+    mode: CopilotMode,
+    first_arg: Option<&str>,
+) -> CopilotMode {
     match mode {
         CopilotMode::Copilot => CopilotMode::Copilot,
         CopilotMode::AgentTask => CopilotMode::AgentTask,

@@ -36,9 +36,7 @@ impl Registry {
         let sessions_dir = storage_root.join("sessions");
         fs::create_dir_all(&sessions_dir)?;
 
-        Ok(Self {
-            storage_root,
-        })
+        Ok(Self { storage_root })
     }
 
     pub fn create_session(
@@ -148,10 +146,7 @@ impl Registry {
         Ok(())
     }
 
-    pub fn get_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionSummary>, anyhow::Error> {
+    pub fn get_session(&self, session_id: &str) -> Result<Option<SessionSummary>, anyhow::Error> {
         let meta_path = self.session_dir_path(session_id).join("meta.json");
         if !meta_path.exists() {
             return Ok(None);

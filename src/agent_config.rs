@@ -58,7 +58,9 @@ impl AgentConfig {
 
         // 2. User global config: ~/.intent/agents.toml
         if let Ok(home) = std::env::var("HOME") {
-            let global = std::path::Path::new(&home).join(".intent").join("agents.toml");
+            let global = std::path::Path::new(&home)
+                .join(".intent")
+                .join("agents.toml");
             if let Ok(content) = fs::read_to_string(&global) {
                 if let Ok(cfg) = toml::from_str::<AgentConfig>(&content) {
                     return cfg;
@@ -163,10 +165,10 @@ fn shell_escape(arg: &str) -> String {
     if arg.is_empty() {
         return "''".to_string();
     }
-    if arg
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '@' | '%' | '+' | '=' | ',' | '.' | ':' | '-' | '_'))
-    {
+    if arg.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(c, '@' | '%' | '+' | '=' | ',' | '.' | ':' | '-' | '_')
+    }) {
         return arg.to_string();
     }
 
@@ -189,7 +191,9 @@ mod tests {
             },
         );
         let cwd = Path::new("/tmp/myproject");
-        let cmd = config.resolve_command("agent", &[], None, Some(cwd)).unwrap();
+        let cmd = config
+            .resolve_command("agent", &[], None, Some(cwd))
+            .unwrap();
         assert_eq!(cmd, vec!["agent"]);
     }
 
@@ -205,7 +209,9 @@ mod tests {
             },
         );
         let cwd = Path::new("/tmp/myproject");
-        let cmd = config.resolve_command("agent", &[], None, Some(cwd)).unwrap();
+        let cmd = config
+            .resolve_command("agent", &[], None, Some(cwd))
+            .unwrap();
         assert_eq!(cmd, vec!["agent", "/tmp/myproject"]);
     }
 }

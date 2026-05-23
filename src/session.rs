@@ -86,7 +86,15 @@ pub fn run_session(
     writeln!(log_file, "# intent_id: {}", intent.id)?;
     writeln!(log_file, "# intent_title: {}", intent.title)?;
     writeln!(log_file, "# command: {}", agent_cmd)?;
-    writeln!(log_file, "# mode: {}", if interactive { "pty" } else { "non-interactive" })?;
+    writeln!(
+        log_file,
+        "# mode: {}",
+        if interactive {
+            "pty"
+        } else {
+            "non-interactive"
+        }
+    )?;
     writeln!(log_file)?;
     if !execution.stdin_bytes.is_empty() {
         writeln!(log_file, "[stdin]")?;
@@ -146,11 +154,13 @@ pub fn run_session(
     let mut seq = 1i64;
     let mut thought_count = 0i64;
     if !stdin_lines.is_empty() {
-        let (next_seq, added) = registry.add_thought_events(&session_id, "stdin", &stdin_lines, seq)?;
+        let (next_seq, added) =
+            registry.add_thought_events(&session_id, "stdin", &stdin_lines, seq)?;
         seq = next_seq;
         thought_count += added;
     }
-    let (next_seq, added) = registry.add_thought_events(&session_id, "stdout", &stdout_lines, seq)?;
+    let (next_seq, added) =
+        registry.add_thought_events(&session_id, "stdout", &stdout_lines, seq)?;
     seq = next_seq;
     thought_count += added;
     let (_, added) = registry.add_thought_events(&session_id, "stderr", &stderr_lines, seq)?;
@@ -182,36 +192,40 @@ pub fn run_session(
     Ok(())
 }
 
-pub fn cmd_run(
-    agent: Option<String>,
-    command: Vec<String>,
-    non_interactive: bool,
-) -> Result<(), anyhow::Error> {
+pub fn cmd_run(agent: String, extra_args: Vec<String>) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let config = AgentConfig::load(&repo_root);
-    let mut extra_env = HashMap::new();
 
-    let final_command = if let Some(agent_name) = agent {
-        if let Some(profile_cmd) = config.resolve_command(&agent_name, &command, None, Some(&repo_root)) {
-            println!("▶ Launching agent '{}' in {}", agent_name, repo_root.display());
-            println!("   Command: {} {}", profile_cmd[0], profile_cmd[1..].join(" "));
+    if let Some(profile_cmd) = config.resolve_command(&agent, &extra_args, None, Some(&repo_root)) {
+        // Configured agent → respect shell_setup + whitelisted env
+        println!(
+            "▶ Launching configured agent '{}' in {}",
+            agent,
+            repo_root.display()
+        );
+        println!(
+            "   Command: {} {}",
+            profile_cmd[0],
+            profile_cmd[1..].join(" ")
+        );
 
-            extra_env = config.build_env(&agent_name);
-            config.apply_shell_setup(&agent_name, profile_cmd)
-        } else {
-            if command.is_empty() {
-                return Err(anyhow!("Unknown agent '{}'. Please define it in .intent/agents.toml", agent_name));
-            }
-            command
-        }
-    } else {
-        if command.is_empty() {
-            return Err(anyhow!("Empty command. Usage: intent run --agent <name>  or  intent run -- <agent-cli> [args...]"));
-        }
-        command
-    };
+        let extra_env = config.build_env(&agent);
+        let final_cmd = config.apply_shell_setup(&agent, profile_cmd);
+        return run_session(repo_root, final_cmd, true, &extra_env);
+    }
 
-    run_session(repo_root, final_command, !non_interactive, &extra_env)
+    // Not in agents.toml → direct execution from PATH, full environment inheritance
+    let mut final_cmd = vec![agent.clone()];
+    final_cmd.extend(extra_args);
+
+    println!(
+        "▶ Running direct command in {} (full env inherited)",
+        repo_root.display()
+    );
+    println!("   Command: {}", final_cmd.join(" "));
+
+    // Empty extra_env → child inherits everything from parent process
+    run_session(repo_root, final_cmd, true, &HashMap::new())
 }
 
 pub fn cmd_show(session_id: &str) -> Result<(), anyhow::Error> {
@@ -245,7 +259,9 @@ pub fn cmd_show(session_id: &str) -> Result<(), anyhow::Error> {
         println!("Report: {}", report_path.display());
     }
 
-    let ring_path = registry.session_dir_path(session_id).join("terminal.ring.bin");
+    let ring_path = registry
+        .session_dir_path(session_id)
+        .join("terminal.ring.bin");
     if ring_path.exists() {
         let size = fs::metadata(&ring_path)?.len();
         println!("Ring buffer: {} ({} bytes)", ring_path.display(), size);
@@ -264,7 +280,10 @@ pub fn cmd_list() -> Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    println!("{:<38} {:<24} {:<12} {:<28}", "SESSION ID", "INTENT", "STATUS", "STARTED AT");
+    println!(
+        "{:<38} {:<24} {:<12} {:<28}",
+        "SESSION ID", "INTENT", "STATUS", "STARTED AT"
+    );
     println!("{}", "-".repeat(105));
     for s in sessions {
         let intent_title = if s.intent_title.len() > 24 {
@@ -272,7 +291,10 @@ pub fn cmd_list() -> Result<(), anyhow::Error> {
         } else {
             s.intent_title.clone()
         };
-        println!("{:<38} {:<24} {:<12} {:<28}", s.id, intent_title, s.status, s.start_at);
+        println!(
+            "{:<38} {:<24} {:<12} {:<28}",
+            s.id, intent_title, s.status, s.start_at
+        );
     }
     Ok(())
 }
@@ -285,10 +307,14 @@ pub fn cmd_attach(session_id: &str) -> Result<(), anyhow::Error> {
     };
 
     if session.status == "running" {
-        return Err(anyhow!("Live attach is not yet supported. Wait for the session to finish."));
+        return Err(anyhow!(
+            "Live attach is not yet supported. Wait for the session to finish."
+        ));
     }
 
-    let ring_path = registry.session_dir_path(session_id).join("terminal.ring.bin");
+    let ring_path = registry
+        .session_dir_path(session_id)
+        .join("terminal.ring.bin");
     if !ring_path.exists() {
         return Err(anyhow!(
             "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
@@ -298,7 +324,14 @@ pub fn cmd_attach(session_id: &str) -> Result<(), anyhow::Error> {
 
     let ring = fs::read(&ring_path)?;
     let preview = String::from_utf8_lossy(&ring);
-    let tail: String = preview.chars().rev().take(2_048).collect::<String>().chars().rev().collect();
+    let tail: String = preview
+        .chars()
+        .rev()
+        .take(2_048)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
 
     println!("Session: {} ({})", session.id, session.status);
     println!("Ring buffer: {} bytes", ring.len());
@@ -367,7 +400,8 @@ fn execute_with_pty(
     .map_err(|e| {
         anyhow!(
             "Failed to spawn PTY for '{}': {}. Make sure the agent CLI exists in PATH.",
-            command[0], e
+            command[0],
+            e
         )
     })?;
 
@@ -384,7 +418,8 @@ fn execute_with_pty(
 
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
 
-    let (snapshots, turns) = conversation::extract_with_snapshots(&stdout_bytes, &stdin_bytes, rows, cols);
+    let (snapshots, turns) =
+        conversation::extract_with_snapshots(&stdout_bytes, &stdin_bytes, rows, cols);
     let conversation = conversation::turns_to_jsonl(&turns);
     let normalized = conversation::snapshots_to_jsonl(&snapshots);
     let structured_events = events_to_jsonl(&events);
@@ -423,7 +458,11 @@ fn generate_min_report(registry: &Registry, session_id: &str) -> Result<(), anyh
 
     writeln!(report_file, "# Session {}", session.id)?;
     writeln!(report_file)?;
-    writeln!(report_file, "- Intent: {} ({})", session.intent_title, session.intent_id)?;
+    writeln!(
+        report_file,
+        "- Intent: {} ({})",
+        session.intent_title, session.intent_id
+    )?;
     writeln!(report_file, "- Status: {}", session.status)?;
     writeln!(report_file, "- Start: {}", session.start_at)?;
     writeln!(

@@ -2,7 +2,7 @@
 name = "intent"
 version = "0.3.0"
 edition = "2021"
-description = "Intent - local agent session recorder (interactive)"
+description = "il - one-command recorder for AI coding agents (Cursor, Claude, Copilot...)"
 license = "MIT"
 repository = "https://github.com/lipish/intent"
 
@@ -27,4 +27,12 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "intent"
+path = "src/main.rs"
+
+[[bin]]
+name = "il"
+path = "src/main.rs"
+
+[[bin]]
+name = "intentloop"
 path = "src/main.rs"

@@ -1,160 +1,142 @@
-# intent
+# il
 
-Intent - Interactive Agent Session Recorder
-
-## Overview
-
-`intent` is a lightweight Rust CLI for personal AI-assisted development.
-It wraps any agent (Cursor, Claude, Copilot, etc.), records the full interactive session, and stores:
-
-- Session metadata (`meta.json`)
-- Intent reference from `INTENT.md`
-- Raw terminal output
-- Structured events, conversation, and VT100 snapshots
-- Ring buffer for tail replay
-- Minimal Markdown report
-
-## Install
+**One command to record everything.**
 
 ```bash
-cargo install --path .
+il run cursor
 ```
 
-Or build locally:
+`il` (also available as `intentloop` and `intent`) is the simplest way to record your full interactive sessions with Cursor, Claude, Copilot, Kimi, Aider — or any terminal tool.
+
+It captures every keystroke, the complete PTY output, conversation turns, and gives you a ring buffer to replay the tail later. All privately on your machine.
+
+No config file required for agents you have already installed and logged into.
+
+## Install (Mac / Linux)
 
 ```bash
+# 1. Build from source (Homebrew + prebuilt binaries coming soon)
+git clone https://github.com/lipish/intent.git
+cd intent
 cargo build --release
-./target/release/intent --help
+
+# 2. Put the binary somewhere in your PATH (three names are identical)
+mkdir -p ~/.local/bin
+cp target/release/il ~/.local/bin/
+ln -sf ~/.local/bin/il ~/.local/bin/intentloop
+ln -sf ~/.local/bin/il ~/.local/bin/intent
+
+# 3. Make sure ~/.local/bin is in PATH, then:
+il --help
 ```
 
-## Quick Start
-
-1) (Optional) Create `INTENT.md` in repo root:
-
-```md
-id: auth-jwt-001
-title: Login refactor to JWT
-```
-
-2) Run an agent interactively:
+## The only command you will use
 
 ```bash
-intent run --agent cursor
+il run cursor
+il run claude
+il run kimi
+# any agent or tool that already works in your terminal
 ```
 
-This launches Cursor (or any agent defined in `.intent/agents.toml`) in full PTY interactive mode and records everything.
+- Launches the program exactly as you normally would (full environment, API keys, login state, everything).
+- Records the complete interactive PTY session.
+- Saves everything under `~/.intentloop/sessions/<id>/`
 
-You can also pass extra args:
+No `agents.toml` is needed unless you want custom shell activation (conda, venv, etc.).
+
+## Inspect what happened
 
 ```bash
-intent run --agent cursor -- --some-flag
+il list
+il show <session-id>
+il attach <session-id>     # replay the last ~2000 characters of the session
 ```
 
-Or run any command:
+## Optional: INTENT.md
 
-```bash
-intent run -- echo "hello"
-```
-
-Copy `.intent/agents.toml.example` to `.intent/agents.toml` (current dir or `~/.intent/`) to add Cursor, Claude, Codex, etc.
-
-Or run GitHub Copilot CLI directly:
-
-```bash
-intent copilot
-```
-
-3) Inspect a session:
-
-```bash
-intent show <session-id>
-intent list
-intent attach <session-id>   # replay ring buffer tail
-```
-
-## Commands
-
-- `intent run [--agent <name>] [--non-interactive] [-- <command...>]`
-  - Runs the command and records a session.
-- `intent copilot [--mode auto|copilot|agent-task] [--prompt "..."] [--wait] [--non-interactive] [-- <gh args...>]`
-  - Runs GitHub CLI agent command in a recorded session.
-  - Uses PTY interactive mode by default (full terminal interaction + transcript capture).
-  - Add `--non-interactive` to use one-shot capture mode.
-  - Add `--wait` to wait for final result when using `gh agent-task` (`create --follow`).
-  - If no args are provided, it builds a prompt from `INTENT.md` and runs:
-    - `gh copilot suggest <prompt>` (copilot mode)
-    - `gh agent-task create <prompt>` (agent-task mode)
-
-Wait for final result example:
-
-```bash
-intent copilot --mode agent-task --wait
-```
-
-- `intent show <session-id>` — show session metadata and artifact paths
-- `intent list` — list recent sessions
-- `intent attach <session-id>` — print the saved ring buffer tail for a completed PTY session
-
-## Storage Layout
-
-```text
-~/.intentloop/              # or $INTENTLOOP_HOME
-  sessions/
-    <session_id>/
-      meta.json
-      terminal.raw.log
-      thought_events.jsonl
-      events.jsonl
-      conversation.jsonl
-      terminal.normalized.jsonl
-      terminal.ring.bin
-      report.md
-```
-
-You can override the storage root with:
-
-```bash
-export INTENTLOOP_HOME=/path/to/your/session-store
-```
-
-Agent profiles (config) are loaded from `.intent/agents.toml` (walk up), `~/.intent/agents.toml`, or legacy `.intentloop/agents.toml`. Session data (recordings) always defaults to `~/.intentloop` (or `$INTENTLOOP_HOME`), keeping repos clean; set the env var for per-repo storage and ignore it in git.
-
-## Current Scope
-
-Included:
-
-- Interactive PTY session recording (`intent run --agent xxx`)
-- JSON session store + raw log + structured events
-- Conversation extraction via vt100 replay
-- Ring buffer tail replay via `intent attach`
-- Minimal Markdown report
-- Agent profiles via `.intent/agents.toml` (`env_whitelist`, `shell_setup`, etc.)
-
-Not included yet:
-
-- Live attach to running sessions
-- Rewind / snapshot restore
-- Git hooks
-- Semantic search
-
-## Environment Variables (.env)
-
-- Auto-loads `.env` from current directory (via `dotenvy`).
-- Agent `env_whitelist` in `agents.toml` passes selected vars into the spawned process.
+If you put an `INTENT.md` file with `id:` and `title:` at the top in your project root, the session is automatically tagged with that intent. Great for later searching or grouping related work.
 
 Example:
 
-```bash
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o
-LLM_API_KEY=your_key
+```md
+id: payment-refactor
+title: Migrate billing to new payment provider
 ```
 
-## Copilot CLI Prerequisites
+## Optional: .intent/agents.toml (advanced)
 
-- Install GitHub CLI (`gh`)
-- Install/enable Copilot CLI support for `gh` (or use `gh agent-task` preview commands)
-- Run `gh auth login` and ensure `gh copilot` works in your shell
+Only create this file when you need:
+
+- Custom shell setup (`source .venv/bin/activate`, `conda activate`, nvm, etc.)
+- Always pass the same extra flags
+- Give a short alias to a long command
+
+See `.intentloop/agents.toml.example` for the format. Most users never need this file.
+
+## Commands
+
+| Command                  | What it does                                      |
+|--------------------------|---------------------------------------------------|
+| `il run <name>`          | Launch `<name>` (from PATH or agents.toml) and record the full PTY session |
+| `il list`                | List recent recorded sessions                     |
+| `il show <id>`           | Show metadata and report location for a session   |
+| `il attach <id>`         | Replay the tail of the ring buffer (last ~2000 chars) |
+| `il copilot ...`         | Run GitHub Copilot CLI inside a recorded session (advanced) |
+
+All `il`, `intentloop`, and `intent` are the exact same binary.
+
+## Storage
+
+All recordings go to `~/.intentloop` (or `$INTENTLOOP_HOME` if set). This keeps your git repos clean.
+
+```text
+~/.intentloop/
+  sessions/
+    <session-id>/
+      meta.json
+      terminal.raw.log          # original PTY stream
+      conversation.jsonl
+      terminal.ring.bin         # circular buffer for fast tail replay
+      report.md
+```
+
+```bash
+export INTENTLOOP_HOME=/some/other/place   # optional, per-project storage
+```
+
+The only thing you ever put in your repo (optional) is `.intent/agents.toml` when you need custom launch profiles.
+
+## What works today
+
+- Zero-config recording of any agent already in your PATH (`il run cursor`, etc.)
+- Full PTY capture (even TUI, arrow keys, multi-line prompts)
+- Conversation extraction + ring buffer for instant tail replay (`il attach`)
+- Automatic tagging via optional `INTENT.md`
+- Optional advanced profiles in `.intent/agents.toml`
+
+Roadmap (soon):
+
+- Live attach to a running session
+- One-command rewind to the state before the session
+- Git commit message footer injection
+- Cross-session semantic search over your history
+
+## Environment & Secrets
+
+`il` never touches your secrets. Whatever environment variables and login state (Keychain, `~/.config/...`, etc.) your agent normally sees, `il run <agent>` will see exactly the same thing.
+
+No `env_whitelist` gymnastics needed for normal use.
+
+## GitHub Copilot CLI
+
+If you use `gh copilot`, you can record those sessions too:
+
+```bash
+il copilot -- suggest "fix the auth bug"
+```
+
+See `il copilot --help` for the full set of options.
 
 ## License
 

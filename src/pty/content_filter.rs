@@ -103,14 +103,24 @@ fn is_tool_status_line(line: &str) -> bool {
     {
         return true;
     }
-    if t.len() < 80 && lower.contains('%') && !t.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)) {
+    if t.len() < 80
+        && lower.contains('%')
+        && !t.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+    {
         return true;
     }
 
     // 强工具动词前缀（Cursor/Claude 真实状态行，几乎不出现在正文）
     const STRONG_TOOL_PREFIXES: &[&str] = &[
-        "globbing ", "grepping ", "reading ", "writing ", "executing ",
-        "searching ", "fetching ", "planning ", "building ",
+        "globbing ",
+        "grepping ",
+        "reading ",
+        "writing ",
+        "executing ",
+        "searching ",
+        "fetching ",
+        "planning ",
+        "building ",
     ];
     for p in STRONG_TOOL_PREFIXES {
         if lower.starts_with(p) {
@@ -120,13 +130,21 @@ fn is_tool_status_line(line: &str) -> bool {
 
     // 较弱前缀 + “像 Cursor 工具日志” 的守卫（路径、in .、短 + 无 prose 词）
     if (lower.starts_with("glob ") || lower.starts_with("grep ") || lower.starts_with("run "))
-        && (t.ends_with(" in .") || t.ends_with(" in ./") || lower.contains('/') || lower.contains('.'))
+        && (t.ends_with(" in .")
+            || t.ends_with(" in ./")
+            || lower.contains('/')
+            || lower.contains('.'))
         && !looks_like_natural_language(&lower, t)
     {
         return true;
     }
 
-    if lower.starts_with("read ") || lower.starts_with("write ") || lower.starts_with("list ") || lower.starts_with("execute ") || lower.starts_with("call ") {
+    if lower.starts_with("read ")
+        || lower.starts_with("write ")
+        || lower.starts_with("list ")
+        || lower.starts_with("execute ")
+        || lower.starts_with("call ")
+    {
         // 典型 Cursor "Read foo.rs" / "Write bar.py" 单行状态
         if (t.len() < 80 && (lower.contains('/') || lower.contains('.') || t.ends_with(" in .")))
             && !looks_like_natural_language(&lower, t)
@@ -136,7 +154,11 @@ fn is_tool_status_line(line: &str) -> bool {
     }
 
     // "found N files" 类短计数；避免误杀 "I found that..."
-    if lower.starts_with("found ") && t.len() < 60 && !lower.contains(" the ") && !lower.contains(" that ") {
+    if lower.starts_with("found ")
+        && t.len() < 60
+        && !lower.contains(" the ")
+        && !lower.contains(" that ")
+    {
         return true;
     }
 
@@ -157,13 +179,24 @@ fn is_tool_status_line(line: &str) -> bool {
 /// 命中则不视为噪音，保护 "I plan to read the file..." 这类句子。
 /// 注意：路径中的 "." 不应触发（如 "Read foo.rs"），只认句末标点或 ". " 序列。
 fn looks_like_natural_language(lower: &str, orig: &str) -> bool {
-    lower.contains(" i ") || lower.contains(" we ") || lower.contains(" you ") ||
-    lower.contains(" the ") || lower.contains(" this ") || lower.contains(" that ") ||
-    lower.contains(" because ") || lower.contains(" 由于 ") || lower.contains(" 因此 ") ||
-    lower.contains(" important") || lower.contains("注意") || lower.contains("关键") ||
-    orig.contains(". ") || orig.contains("。") || orig.contains("！") || orig.contains("？") ||
-    (orig.ends_with('.') && !orig.contains('/') && !orig.contains('\\') && orig.len() > 12) ||
-    orig.len() > 85
+    lower.contains(" i ")
+        || lower.contains(" we ")
+        || lower.contains(" you ")
+        || lower.contains(" the ")
+        || lower.contains(" this ")
+        || lower.contains(" that ")
+        || lower.contains(" because ")
+        || lower.contains(" 由于 ")
+        || lower.contains(" 因此 ")
+        || lower.contains(" important")
+        || lower.contains("注意")
+        || lower.contains("关键")
+        || orig.contains(". ")
+        || orig.contains("。")
+        || orig.contains("！")
+        || orig.contains("？")
+        || (orig.ends_with('.') && !orig.contains('/') && !orig.contains('\\') && orig.len() > 12)
+        || orig.len() > 85
 }
 
 #[cfg(test)]
@@ -190,12 +223,24 @@ mod tests {
     #[test]
     fn does_not_filter_natural_language_with_tool_verbs() {
         // 之前脆弱规则会误杀这些正文
-        assert!(is_substantive_line("I plan to read the requirements and refactor the glob logic."));
-        assert!(is_substantive_line("We are reading the design doc to understand the intent."));
-        assert!(is_substantive_line("The main issue is that the current filter is too aggressive."));
-        assert!(is_substantive_line("Found the root cause after carefully reading the source."));
-        assert!(is_substantive_line("Warning: this change may affect downstream users, but it is intentional."));
-        assert!(is_substantive_line("我计划先读取 INTENT.md 再决定重构策略。"));
+        assert!(is_substantive_line(
+            "I plan to read the requirements and refactor the glob logic."
+        ));
+        assert!(is_substantive_line(
+            "We are reading the design doc to understand the intent."
+        ));
+        assert!(is_substantive_line(
+            "The main issue is that the current filter is too aggressive."
+        ));
+        assert!(is_substantive_line(
+            "Found the root cause after carefully reading the source."
+        ));
+        assert!(is_substantive_line(
+            "Warning: this change may affect downstream users, but it is intentional."
+        ));
+        assert!(is_substantive_line(
+            "我计划先读取 INTENT.md 再决定重构策略。"
+        ));
     }
 
     #[test]
@@ -209,7 +254,9 @@ mod tests {
     #[test]
     fn handles_mixed_and_edge_cases() {
         // 带 % 的进度但有中文 -> 保留（is_substantive 里的 CJK 优先）
-        assert!(is_substantive_line("已完成 87% 的重构工作，剩余 3 个模块。"));
+        assert!(is_substantive_line(
+            "已完成 87% 的重构工作，剩余 3 个模块。"
+        ));
         // 纯英文短进度无 CJK -> 过滤
         assert!(is_noise_line("Processing 87%..."));
     }
