@@ -138,7 +138,10 @@ impl CompatPtySession {
                             kind: "PtyOutput".to_string(),
                             bytes: Some(n),
                         };
-                        events_clone.lock().unwrap_or_else(|p| p.into_inner()).push(event);
+                        events_clone
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .push(event);
                     }
                     Err(_) => break,
                 }

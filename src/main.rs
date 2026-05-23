@@ -3,8 +3,8 @@ use intent::copilot::{self, CopilotMode};
 use intent::session;
 
 #[derive(Parser)]
-#[command(name = "intent")]
-#[command(about = "Intent - interactive agent session recorder", long_about = None)]
+#[command(name = "il")]
+#[command(about = "il - record full AI agent sessions with one command", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -29,17 +29,22 @@ impl From<CopilotModeCli> for CopilotMode {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run agent command and record a session
+    /// Run any agent or command and record the full interactive session.
+    ///
+    /// Works out of the box for anything already in your PATH (Cursor, Claude,
+    /// Kimi, etc.). Use .intent/agents.toml only when you need custom shell
+    /// activation or fixed arguments.
+    ///
+    ///   il run cursor
+    ///   il run claude
+    ///   il run kimi
+    ///   il run echo "hello"
     Run {
-        /// Agent name defined in .intent/agents.toml, e.g. cursor, claude, copilot
-        #[arg(long)]
-        agent: Option<String>,
-        /// Optional extra args or full command. When --agent is used without this, launches the agent interactively.
+        /// Agent name or executable in PATH
+        agent: String,
+        /// Extra arguments (only used in direct/PATH mode)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        command: Vec<String>,
-        /// Disable PTY mode and execute in non-interactive capture mode
-        #[arg(long)]
-        non_interactive: bool,
+        args: Vec<String>,
     },
     /// Run GitHub Copilot CLI in an IntentLoop session
     Copilot {
@@ -67,9 +72,7 @@ enum Commands {
     /// List recent sessions
     List,
     /// Replay the saved ring buffer tail for a completed session
-    Attach {
-        session_id: String,
-    },
+    Attach { session_id: String },
 }
 
 fn main() {
@@ -78,10 +81,14 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Run { agent, command, non_interactive } => session::cmd_run(agent, command, non_interactive),
-        Commands::Copilot { prompt, mode, non_interactive, wait, args } => {
-            cmd_copilot(prompt, mode.into(), non_interactive, wait, args)
-        }
+        Commands::Run { agent, args } => session::cmd_run(agent, args),
+        Commands::Copilot {
+            prompt,
+            mode,
+            non_interactive,
+            wait,
+            args,
+        } => cmd_copilot(prompt, mode.into(), non_interactive, wait, args),
         Commands::Show { session_id } => session::cmd_show(&session_id),
         Commands::List => session::cmd_list(),
         Commands::Attach { session_id } => session::cmd_attach(&session_id),
@@ -103,7 +110,8 @@ fn cmd_copilot(
     let repo_root = std::env::current_dir()?;
     let intent = intent::load_intent(&repo_root);
 
-    let selected_mode = copilot::resolve_copilot_mode(&repo_root, mode, args.first().map(String::as_str));
+    let selected_mode =
+        copilot::resolve_copilot_mode(&repo_root, mode, args.first().map(String::as_str));
     let command = copilot::build_gh_agent_command(selected_mode, prompt, args, &intent, wait);
 
     println!("Copilot backend: {}", copilot::mode_label(selected_mode));

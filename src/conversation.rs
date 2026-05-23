@@ -4,7 +4,7 @@ use serde::Serialize;
 use crate::pty::content_filter::filter_content_lines;
 use crate::pty::terminal_input::{parse_submitted_lines, strip_terminal_escapes};
 use crate::pty::vt100_recorder::{
-    lines_added, unique_content_lines, stdout_has_ansi, ScreenSnapshot, Vt100Recorder,
+    lines_added, stdout_has_ansi, unique_content_lines, ScreenSnapshot, Vt100Recorder,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -15,7 +15,12 @@ pub struct ConversationTurn {
 }
 
 /// 从 PTY 原始 stdout/stdin 提取对话：stdout 走 vt100 屏幕快照，stdin 走行编辑回放。
-pub fn extract_conversation(stdout: &[u8], stdin: &[u8], rows: u16, cols: u16) -> Vec<ConversationTurn> {
+pub fn extract_conversation(
+    stdout: &[u8],
+    stdin: &[u8],
+    rows: u16,
+    cols: u16,
+) -> Vec<ConversationTurn> {
     let (_, turns) = extract_with_snapshots(stdout, stdin, rows, cols);
     turns
 }
@@ -32,7 +37,13 @@ pub fn extract_with_snapshots(
     let mut turns = Vec::new();
 
     if user_prompts.is_empty() {
-        let text = agent_text_from_snapshots(stdout, &snapshots, 0, snapshots.len().saturating_sub(1), &[]);
+        let text = agent_text_from_snapshots(
+            stdout,
+            &snapshots,
+            0,
+            snapshots.len().saturating_sub(1),
+            &[],
+        );
         if !text.is_empty() {
             turns.push(ConversationTurn {
                 role: "agent".to_string(),
@@ -63,7 +74,8 @@ pub fn extract_with_snapshots(
         };
 
         let prompt_str = prompt.as_str();
-        let text = agent_text_from_snapshots(stdout, &snapshots, agent_start, agent_end, &[prompt_str]);
+        let text =
+            agent_text_from_snapshots(stdout, &snapshots, agent_start, agent_end, &[prompt_str]);
         if !text.is_empty() {
             turns.push(ConversationTurn {
                 role: "agent".to_string(),
@@ -93,11 +105,19 @@ fn agent_text_from_snapshots(
     if lines.is_empty() {
         lines = lines_between_snapshots(snapshots, start_idx, end_idx);
     }
-    lines.retain(|line| !user_prompts.iter().any(|p| line.trim() == p.trim() || line.contains(p.trim())));
+    lines.retain(|line| {
+        !user_prompts
+            .iter()
+            .any(|p| line.trim() == p.trim() || line.contains(p.trim()))
+    });
     filter_content_lines(lines).join("\n")
 }
 
-fn lines_between_snapshots(snapshots: &[ScreenSnapshot], start_idx: usize, end_idx: usize) -> Vec<String> {
+fn lines_between_snapshots(
+    snapshots: &[ScreenSnapshot],
+    start_idx: usize,
+    end_idx: usize,
+) -> Vec<String> {
     if snapshots.is_empty() {
         return Vec::new();
     }
@@ -148,23 +168,23 @@ mod tests {
     fn vt100_extracts_mock_sqlite_answer() {
         // Mock stdin: user inputs "What is SQLite?\n"
         let stdin = b"What is SQLite?\n";
-        
+
         // Mock stdout: ANSI sequences, user prompt echoed, then agent response with "SQLite" and "嵌入式"
         let stdout = b"\x1b[2J\x1b[HWhat is SQLite?\r\nSQLite is a lightweight \xe5\xb5\x8c\xe5\x85\xa5\xe5\xbc\x8f database engine.\r\n";
-        
+
         let turns = extract_conversation(stdout, stdin, 24, 80);
-        
+
         let user: Vec<_> = turns.iter().filter(|t| t.role == "user").collect();
         assert_eq!(user.len(), 1);
         assert_eq!(user[0].text, "What is SQLite?");
-        
+
         let agent: String = turns
             .iter()
             .filter(|t| t.role == "agent")
             .map(|t| t.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        
+
         assert!(agent.contains("SQLite"), "agent text: {}", agent);
         assert!(agent.contains("嵌入式"), "agent text: {}", agent);
     }
@@ -173,24 +193,24 @@ mod tests {
     fn filters_agent_tui_noise_from_mock_session() {
         // Mock stdin: user inputs "优化代码\n"
         let stdin = b"\x1b]11;rgb:ffff/fcfc/f0f0\x07\x1b[Is\x7f\xe4\xbc\x98\xe5\x8c\x96\xe4\xbb\xa3\xe7\xa0\x81\n";
-        
+
         // Mock stdout contains TUI noise like Globbing/Grepping, and then "优化空间"
         let stdout = b"Globbing \"**/*\" in .\r\nGrepping for keywords...\r\n\xe4\xbc\x98\xe5\x8c\x96\xe7\xa0\x81\r\n\xe4\xbc\x98\xe5\x8c\x96\xe7\xa9\xba\xe9\x97\xb4 is huge.\r\n";
-        
+
         let turns = extract_conversation(stdout, stdin, 24, 80);
-        
+
         let user: Vec<_> = turns.iter().filter(|t| t.role == "user").collect();
         assert_eq!(user.len(), 1);
         assert!(user[0].text.contains("优化"));
         assert!(!user[0].text.contains("rgb:"));
-        
+
         let agent: String = turns
             .iter()
             .filter(|t| t.role == "agent")
             .map(|t| t.text.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-            
+
         assert!(agent.contains("优化空间"), "agent text: {}", agent);
         assert!(!agent.contains("Globbing"), "agent text: {}", agent);
         assert!(!agent.contains("Grepping"), "agent text: {}", agent);

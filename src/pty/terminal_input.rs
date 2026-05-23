@@ -53,7 +53,8 @@ pub fn strip_terminal_escapes(input: &[u8]) -> Vec<u8> {
         }
 
         let b = input[i];
-        if b.is_ascii_control() && b != b'\r' && b != b'\n' && b != b'\t' && b != 0x7f && b != 0x08 {
+        if b.is_ascii_control() && b != b'\r' && b != b'\n' && b != b'\t' && b != 0x7f && b != 0x08
+        {
             i += 1;
             continue;
         }
@@ -118,7 +119,10 @@ fn normalize_prompt(raw: &str) -> Option<String> {
     if looks_like_terminal_noise(text) {
         return None;
     }
-    if !text.chars().any(|c| c.is_alphabetic() || ('\u{4e00}'..='\u{9fff}').contains(&c)) {
+    if !text
+        .chars()
+        .any(|c| c.is_alphabetic() || ('\u{4e00}'..='\u{9fff}').contains(&c))
+    {
         return None;
     }
     Some(text.to_string())
