@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-pkg:
+    name: Build macOS pkg installer
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Read version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build aarch64 binary
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Build x86_64 binary
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Create universal binary (il)
+        run: |
+          mkdir -p target/pkg-root
+          lipo -create \
+            target/aarch64-apple-darwin/release/il \
+            target/x86_64-apple-darwin/release/il \
+            -output target/pkg-root/il
+          chmod +x target/pkg-root/il
+          echo "il architectures: $(lipo -archs target/pkg-root/il)"
+
+      - name: Build component package
+        run: |
+          pkgbuild \
+            --root target/pkg-root \
+            --install-location /usr/local/bin \
+            --identifier com.intentloop.pkg \
+            --version "${{ steps.version.outputs.version }}" \
+            target/intentloop-component.pkg
+
+      - name: Build distribution package
+        run: |
+          mkdir -p target/pkg-resources
+          sed "s/@VERSION@/${{ steps.version.outputs.version }}/g" \
+            pkg/Distribution.in > target/pkg-resources/Distribution.xml
+          cp pkg/Welcome.html target/pkg-resources/Welcome.html
+
+          productbuild \
+            --distribution target/pkg-resources/Distribution.xml \
+            --resources target/pkg-resources \
+            --package-path target/intentloop-component.pkg \
+            "target/IntentLoop-${{ steps.version.outputs.version }}.pkg"
+
+      - name: Generate checksum
+        run: |
+          cd target
+          shasum -a 256 "IntentLoop-${{ steps.version.outputs.version }}.pkg" \
+            > "IntentLoop-${{ steps.version.outputs.version }}.pkg.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/IntentLoop-${{ steps.version.outputs.version }}.pkg
+            target/IntentLoop-${{ steps.version.outputs.version }}.pkg.sha256
+          generate_release_notes: true
+          name: "IntentLoop v${{ steps.version.outputs.version }}"

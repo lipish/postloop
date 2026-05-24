@@ -6,28 +6,39 @@
 il run cursor
 ```
 
-`il` (also available as `intentloop` and `intent`) is the simplest way to record your full interactive sessions with Cursor, Claude, Copilot, Kimi, Aider — or any terminal tool.
+`il` is the simplest way to record your full interactive sessions with Cursor, Claude, Copilot, Kimi, Aider — or any terminal tool. (The same binary can also be invoked as `intentloop` or `intent` if you create symlinks.)
 
 It captures every keystroke, the complete PTY output, conversation turns, and gives you a ring buffer to replay the tail later. All privately on your machine.
 
 No config file required for agents you have already installed and logged into.
 
-## Install (Mac / Linux)
+## Install
+
+### macOS (recommended)
+
+Download the `.pkg` from [GitHub Releases](https://github.com/EeroEternal/IntentLoop/releases) and install:
 
 ```bash
-# 1. Build from source (Homebrew + prebuilt binaries coming soon)
-git clone https://github.com/lipish/intent.git
-cd intent
+sudo installer -pkg IntentLoop-*.pkg -target /
+```
+
+The package installs `il` to `/usr/local/bin/il`.
+
+### Linux / build from source
+
+Requires Rust:
+
+```bash
+cargo install --path .
+```
+
+Or:
+
+```bash
+git clone https://github.com/EeroEternal/IntentLoop.git
+cd IntentLoop
 cargo build --release
-
-# 2. Put the binary somewhere in your PATH (three names are identical)
-mkdir -p ~/.local/bin
-cp target/release/il ~/.local/bin/
-ln -sf ~/.local/bin/il ~/.local/bin/intentloop
-ln -sf ~/.local/bin/il ~/.local/bin/intent
-
-# 3. Make sure ~/.local/bin is in PATH, then:
-il --help
+# copy target/release/il to a directory in $PATH (e.g. ~/.local/bin)
 ```
 
 ## The only command you will use
@@ -84,7 +95,7 @@ See `.intentloop/agents.toml.example` for the format. Most users never need this
 | `il attach <id>`         | Replay the tail of the ring buffer (last ~2000 chars) |
 | `il copilot ...`         | Run GitHub Copilot CLI inside a recorded session (advanced) |
 
-All `il`, `intentloop`, and `intent` are the exact same binary.
+`il`, `intentloop`, and `intent` are the exact same binary (when symlinked or built from source). The official macOS package only ships `il`.
 
 ## Storage
 

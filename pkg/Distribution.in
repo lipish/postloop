@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>IntentLoop</title>
+    <organization>com.intentloop</organization>
+    <domains enable_localSystem="true" enable_currentUserHome="false" enable_anywhere="false"/>
+
+    <welcome file="Welcome.html"/>
+
+    <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.intentloop.pkg"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+
+    <choice id="com.intentloop.pkg"
+            visible="false"
+            title="IntentLoop CLI"
+            description="IntentLoop command-line tool (Universal Binary)"
+            start_selected="true">
+        <pkg-ref id="com.intentloop.pkg"/>
+    </choice>
+
+    <pkg-ref id="com.intentloop.pkg"
+             version="@VERSION@"
+             onConclusion="none">intentloop-component.pkg</pkg-ref>
+</installer-gui-script>
