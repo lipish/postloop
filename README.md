@@ -54,7 +54,7 @@ il run kimi
 - Records the complete interactive PTY session.
 - Persists session data through `memmap_fs` under `~/.intentloop`.
 
-No `agents.toml` is needed unless you want custom shell activation (conda, venv, etc.).
+**No `agents.toml` or any launch configuration file is supported or needed.** All shell activation, environment, and login state come from your normal terminal setup.
 
 ## Inspect what happened
 
@@ -65,23 +65,11 @@ il attach <session-id>     # replay the last ~2000 characters of the session
 il dump <session-id> stdout
 ```
 
-## Optional: .intent/agents.toml (advanced)
-
-Only create this file when you need:
-
-- Custom shell setup (`source .venv/bin/activate`, `conda activate`, nvm, etc.)
-- Always pass the same extra flags
-- Give a short alias to a long command
-
-Most users never need this file. If you do, create `.intent/agents.toml` manually with an
-`[agents.<name>]` entry that specifies `command`, optional `args`, optional `shell_setup`,
-and optional `env_whitelist`.
-
 ## Commands
 
 | Command                  | What it does                                      |
 |--------------------------|---------------------------------------------------|
-| `il run <name>`          | Launch `<name>` (from PATH or agents.toml) and record the full PTY session |
+| `il run <name>`          | Launch `<name>` (exactly as it works in your normal shell) and record the full PTY session |
 | `il list`                | List recent recorded sessions                     |
 | `il show <id>`           | Show metadata and stored stream references        |
 | `il attach <id>`         | Replay the tail of the ring buffer (last ~2000 chars) |
@@ -113,7 +101,7 @@ il dump <session-id> report --output report.md
 export INTENTLOOP_HOME=/some/other/place   # optional, per-project storage
 ```
 
-The only thing you ever put in your repo (optional) is `.intent/agents.toml` when you need custom launch profiles.
+You never put any IntentLoop-specific launch configuration in your repo. The recorder is completely decoupled from how your agents are activated.
 
 ## What works today
 
@@ -121,7 +109,6 @@ The only thing you ever put in your repo (optional) is `.intent/agents.toml` whe
 - Full PTY capture (even TUI, arrow keys, multi-line prompts)
 - Conversation extraction + ring buffer for instant tail replay (`il attach`)
 - Full-text search across extracted conversations (`il search`)
-- Optional advanced profiles in `.intent/agents.toml`
 
 Roadmap (soon):
 

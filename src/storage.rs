@@ -12,10 +12,9 @@ use crate::registry::SessionSummary;
 
 /// Storage handle for IntentLoop sessions.
 ///
-/// Wraps `MemMapFS` and provides IntentLoop-specific APIs for:
-/// - Session metadata CRUD
-/// - Terminal stream append/read
-/// - Full-text search indexing
+/// Thin, IntentLoop-specific wrapper around the `memmap_fs` crate.
+/// All business data (sessions, streams, indexes) lives here; no parallel
+/// on-disk JSONL/report files are written by default.
 #[derive(Clone)]
 pub struct Storage {
     fs: MemMapFS,
@@ -159,7 +158,9 @@ impl Storage {
     }
 }
 
-/// A `std::io::Write` adapter that appends every write to a memmap_fs stream.
+/// `std::io::Write` implementation that appends to a memmap_fs stream key.
+/// Used by the PTY layer so that captured output flows directly into storage
+/// without knowing about the underlying KV/stream engine.
 pub struct StreamWriter {
     storage: Storage,
     session_id: String,
@@ -179,14 +180,15 @@ impl Write for StreamWriter {
     }
 }
 
-/// A search result hit.
+/// Lightweight search hit returned by the storage layer (key + score).
+/// Higher layers (Registry) enrich it with full SessionSummary.
 #[derive(Debug, Clone)]
 pub struct SearchHit {
     pub key: String,
     pub score: f32,
 }
 
-/// Storage errors.
+/// Errors that can occur while talking to the memmap_fs backed storage.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
     #[error("memmap_fs error: {0}")]

@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use uuid::Uuid;
 
-use crate::agent_config::AgentConfig;
 use crate::conversation;
 use crate::pty::{CaptureWriter, CompatPtySession, PtyEvent};
 use crate::registry::Registry;
@@ -172,37 +171,20 @@ fn append_jsonl_stream(
 
 pub fn cmd_run(agent: String, extra_args: Vec<String>) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
-    let config = AgentConfig::load(&repo_root);
 
-    if let Some(profile_cmd) = config.resolve_command(&agent, &extra_args, None, Some(&repo_root)) {
-        // Configured agent → respect shell_setup + whitelisted env
-        println!(
-            "▶ Launching configured agent '{}' in {}",
-            agent,
-            repo_root.display()
-        );
-        println!(
-            "   Command: {} {}",
-            profile_cmd[0],
-            profile_cmd[1..].join(" ")
-        );
-
-        let extra_env = config.build_env(&agent);
-        let final_cmd = config.apply_shell_setup(&agent, profile_cmd);
-        return run_session(repo_root, final_cmd, true, &extra_env);
-    }
-
-    // Not in agents.toml → direct execution from PATH, full environment inheritance
+    // 极简策略：永远直接执行用户在当前 shell 环境中已经可以运行的命令。
+    // 所有 shell 激活（conda / venv / direnv / asdf / nvm 等）、环境变量、登录态，
+    // 均由用户自己的 shell 配置负责。IntentLoop 只负责记录 I/O。
     let mut final_cmd = vec![agent.clone()];
     final_cmd.extend(extra_args);
 
     println!(
-        "▶ Running direct command in {} (full env inherited)",
+        "▶ Running direct command in {} (full env inherited from your shell)",
         repo_root.display()
     );
     println!("   Command: {}", final_cmd.join(" "));
 
-    // Empty extra_env → child inherits everything from parent process
+    // 空 extra_env：子进程完整继承当前父进程环境（即用户终端的真实环境）
     run_session(repo_root, final_cmd, true, &HashMap::new())
 }
 

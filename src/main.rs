@@ -33,18 +33,18 @@ impl From<CopilotModeCli> for CopilotMode {
 enum Commands {
     /// Run any agent or command and record the full interactive session.
     ///
-    /// Works out of the box for anything already in your PATH (Cursor, Claude,
-    /// Kimi, etc.). Use .intent/agents.toml only when you need custom shell
-    /// activation or fixed arguments.
+    /// Launches the command exactly as it would run in your current shell
+    /// (full environment, PATH, activated conda/venv/direnv/asdf/nvm, login state, etc.).
+    /// IntentLoop does not read any agents.toml or manage launch configuration.
     ///
     ///   il run cursor
     ///   il run claude
     ///   il run kimi
     ///   il run echo "hello"
     Run {
-        /// Agent name or executable in PATH
+        /// Agent name or executable in PATH (executed exactly as in your current shell)
         agent: String,
-        /// Extra arguments (only used in direct/PATH mode)
+        /// Extra arguments passed verbatim to the command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },

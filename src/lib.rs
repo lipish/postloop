@@ -1,4 +1,3 @@
-pub mod agent_config;
 pub mod conversation;
 pub mod copilot;
 pub mod pty;

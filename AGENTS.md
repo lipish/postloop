@@ -30,6 +30,20 @@
 | 文件快照与回退 | Git |
 | 代码 diff 与 patch | Git diff |
 | 分支管理 | Git |
+| **Agent 启动配置** | 用户自己的 shell（.zshrc、.bashrc、direnv、asdf、conda、venv 等） |
+
+### Agent 启动配置边界（重要）
+
+**IntentLoop 彻底不接管任何 Agent 的启动方式。**
+
+- 不支持、不读取 `.intent/agents.toml`（或任何同类配置文件）来描述 agent 命令、参数、shell_setup、环境变量白名单等。
+- `il run <name> [args...]` 的唯一语义是：**把 `<name>` 当作用户当前 shell 环境中已经可以直接执行的命令**（PATH 中的可执行文件、alias、或已激活环境后的命令）来启动。
+- 所有 shell 激活逻辑（`conda activate`、`source .venv/bin/activate`、`nvm use`、direnv、asdf、自定义环境变量等）均由用户在自己的 shell 配置中完成。
+- IntentLoop 只做一件事：用 PTY 把这个“用户已经能跑的命令”包一层，透明地把 stdin/stdout/stderr 完整记录下来。
+
+**设计原则**：IntentLoop 是**纯记录器**，不是 launcher / environment manager。谁能跑 agent，就由谁的 shell 环境负责激活。
+
+违反此边界的任何 PR 都应该被拒绝。
 
 ---
 

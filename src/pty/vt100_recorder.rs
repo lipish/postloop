@@ -108,6 +108,18 @@ pub fn stdout_has_ansi(stdout: &[u8]) -> bool {
     stdout.contains(&0x1b)
 }
 
+/// 仅 peek 文件前缀判断是否包含 ANSI 转义（避免大文件全量载入内存）。
+pub fn file_has_ansi(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    if let Ok(mut f) = std::fs::File::open(path) {
+        let mut buf = [0u8; 8192];
+        if let Ok(n) = f.read(&mut buf) {
+            return buf[..n].contains(&0x1b);
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +131,29 @@ mod tests {
         recorder.maybe_snapshot();
         recorder.maybe_snapshot();
         assert_eq!(recorder.snapshots.len(), 1);
+    }
+
+    #[test]
+    fn file_has_ansi_peeks_prefix_without_loading_whole_file() {
+        use std::io::Write;
+        use std::path::Path;
+        use tempfile::NamedTempFile;
+
+        // Contains ESC in first 8 KiB → true
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(b"header\x1b[32m green text \x1b[0m\n").unwrap();
+        f.flush().unwrap();
+        assert!(file_has_ansi(f.path()));
+
+        // No ESC anywhere
+        let mut f2 = NamedTempFile::new().unwrap();
+        f2.write_all(b"completely clean output\n123\n").unwrap();
+        f2.flush().unwrap();
+        assert!(!file_has_ansi(f2.path()));
+
+        // Missing file is treated as "no ANSI"
+        assert!(!file_has_ansi(Path::new(
+            "/tmp/does-not-exist-ansi-test-928374"
+        )));
     }
 }

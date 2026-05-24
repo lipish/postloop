@@ -3,19 +3,30 @@ use std::path::{Path, PathBuf};
 
 use crate::storage::{Storage, StreamWriter};
 
+/// Persistent metadata for one recorded agent session.
+///
+/// Stored under `sessions/{id}` key in memmap_fs.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionSummary {
+    /// Unique session identifier (UUID v7).
     pub id: String,
+    /// The original command line that was executed.
     pub agent_cmd: String,
+    /// Working directory at session start.
     pub cwd: String,
+    /// "running" | "succeeded" | "failed" | "interrupted"
     pub status: String,
     pub start_at: String,
     pub end_at: Option<String>,
     pub exit_code: Option<i64>,
+    /// Reference to the primary stdout stream (usually a memmap_fs key).
     pub log_path: String,
     pub thought_count: i64,
 }
 
+/// A single thought / reasoning event extracted from the agent session.
+///
+/// Stored as JSONL under `sessions/{id}/thoughts`.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ThoughtEvent {
     pub seq: i64,
@@ -24,6 +35,10 @@ pub struct ThoughtEvent {
     pub content: String,
 }
 
+/// High-level application storage facade over memmap_fs.
+///
+/// Owns session metadata, stream append/read, and search indexing.
+/// All higher-level commands (run, list, show, search...) go through a Registry.
 pub struct Registry {
     storage: Storage,
 }
@@ -206,7 +221,7 @@ impl Registry {
     }
 }
 
-/// A search result with session metadata.
+/// Result of a full-text search across all indexed conversations.
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub session_id: String,
@@ -216,7 +231,7 @@ pub struct SearchResult {
 
 fn resolve_storage_root(repo_root: &Path) -> PathBuf {
     // 会话数据（sessions/）默认隔离在用户全局 ~/.intentloop 下，避免污染仓库。
-    // 配置（agents.toml）走独立逻辑：优先 .intent/（支持walk up），其次 ~/.intent/，兼容 .intentloop/。
+    // 启动配置（agents.toml / shell_setup 等）已彻底移除，不再由 IntentLoop 管理。
     // 如需 per-repo 会话存储，显式 export INTENTLOOP_HOME=/path/to/local-dir（建议加入 .gitignore）。
     if let Ok(custom_root) = std::env::var("INTENTLOOP_HOME") {
         let custom_root = custom_root.trim();
