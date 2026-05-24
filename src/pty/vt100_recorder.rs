@@ -38,6 +38,23 @@ impl Vt100Recorder {
         self.snapshots
     }
 
+    /// 流式版本：从 reader 读取，避免全量载入大文件到内存。
+    pub fn replay_from_reader<R: std::io::Read>(mut self, mut reader: R) -> Vec<ScreenSnapshot> {
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    self.parser.process(&buf[..n]);
+                    self.maybe_snapshot();
+                }
+                Err(_) => break,
+            }
+        }
+        self.maybe_snapshot();
+        self.snapshots
+    }
+
     fn maybe_snapshot(&mut self) {
         let contents = normalize_screen(&self.parser.screen().contents());
         if contents == self.last_contents {

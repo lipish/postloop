@@ -1,5 +1,5 @@
-# postloop Configuration File
-# Copy this file to deploy.toml and customize for your project
+# Legacy postloop config (no longer used by il).
+# This file is kept only for reference; IntentLoop uses agents.toml for profiles.
 
 [watch]
 # Path to the Git repository

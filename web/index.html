@@ -59,43 +59,43 @@
           <circle cx="20" cy="18" r="6" fill="#ff5f57"/>
           <circle cx="40" cy="18" r="6" fill="#febc2e"/>
           <circle cx="60" cy="18" r="6" fill="#28c840"/>
-          <text x="340" y="23" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" fill="#6a7a90">intentloop — session recorder</text>
+          <text x="340" y="23" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" fill="#6a7a90">il — session recorder</text>
 
           <!-- Run command -->
           <text x="20" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#00b4d8">&#10095;</text>
-          <text x="38" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">intentloop run -- echo "hello-intentloop"</text>
+          <text x="38" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il run echo "hello"</text>
 
           <!-- Output: session started -->
-          <text x="20" y="100" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[intentloop] session started</text>
+          <text x="20" y="100" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[il] session started</text>
           <text x="20" y="120" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  id:      </text>
           <text x="112" y="120" font-family="JetBrains Mono,monospace" font-size="12" fill="#f9e2af">a3f9c1e2-7b44-4d8a</text>
           <text x="20" y="140" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  intent:  </text>
           <text x="112" y="140" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">auth-jwt-001</text>
           <text x="20" y="160" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  storage: </text>
-          <text x="112" y="160" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">~/.intentloop/sessions/a3f9c1e2/</text>
+          <text x="112" y="160" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">memmap_fs @ ~/.intentloop</text>
 
           <!-- Command output -->
-          <text x="20" y="190" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">hello-intentloop</text>
+          <text x="20" y="190" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">hello</text>
 
           <!-- Session finished -->
-          <text x="20" y="220" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[intentloop] session finished — 2.4s</text>
+          <text x="20" y="220" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[il] session finished — 2.4s</text>
           <text x="20" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  report:  </text>
-          <text x="112" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">~/.intentloop/sessions/a3f9c1e2/report.md</text>
+          <text x="112" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il dump a3f9c1e2 report</text>
 
           <!-- Separator -->
           <line x1="20" y1="262" x2="660" y2="262" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
 
           <!-- Copilot command -->
           <text x="20" y="290" font-family="JetBrains Mono,monospace" font-size="13" fill="#00b4d8">&#10095;</text>
-          <text x="38" y="290" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">intentloop copilot -- suggest "refactor auth module"</text>
+          <text x="38" y="290" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il copilot -- suggest "refactor auth module"</text>
 
           <!-- Output -->
-          <text x="20" y="320" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[intentloop] running gh copilot suggest ...</text>
+          <text x="20" y="320" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[il] running gh copilot suggest ...</text>
           <text x="20" y="340" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">✓ PTY session captured</text>
           <text x="20" y="360" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  events:  </text>
           <text x="112" y="360" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">42 events recorded</text>
-          <text x="20" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  log:     </text>
-          <text x="112" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">terminal.raw.log (3.2 KB)</text>
+          <text x="20" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  dump:    </text>
+          <text x="112" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il dump &lt;id&gt; stdout</text>
         </svg>
       </div>
     </section>
@@ -108,7 +108,7 @@
       <p>
         IntentLoop is a <strong>Rust CLI tool</strong> for recording AI agent coding sessions locally.
         It wraps any agent command — GitHub Copilot, custom LLM prompts, or shell scripts — and captures
-        the full session: intent metadata, terminal output, structured events, and a minimal Markdown report.
+        the full session: intent metadata, terminal output, structured events, conversation turns, and reports.
       </p>
       <p>
         Everything stays on your machine. No cloud, no telemetry, no accounts.
@@ -116,16 +116,16 @@
 
       <h2>Session recording</h2>
       <p>
-        Wrap any command with <code>intentloop run</code> to capture a full session. The command runs inside
+        Wrap any command with <code>il run</code> to capture a full session. The command runs inside
         a real pseudo-terminal (PTY), so interactive tools work exactly as expected. Every keystroke,
         every line of output, every ANSI escape sequence is recorded.
       </p>
       <div class="code-block config-block">
 <pre><code># Record any command as a session
-intentloop run -- echo "hello-intentloop"
+il run echo "hello"
 
 # Record with a specific intent reference
-INTENT_ID=auth-jwt-001 intentloop run -- cargo test</code></pre>
+INTENT_ID=auth-jwt-001 il run cargo test</code></pre>
       </div>
 
       <h2>GitHub Copilot integration</h2>
@@ -136,23 +136,26 @@ INTENT_ID=auth-jwt-001 intentloop run -- cargo test</code></pre>
       </p>
       <div class="code-block config-block">
 <pre><code># Auto-detect backend
-intentloop copilot
+il copilot
 
 # Force a specific backend
-intentloop copilot --mode copilot -- suggest "analyze auth flow"
-intentloop copilot --mode agent-task -- create "Refactor auth module"
+il copilot --mode copilot -- suggest "analyze auth flow"
+il copilot --mode agent-task -- create "Refactor auth module"
 
 # Wait for final result (agent-task)
-intentloop copilot --mode agent-task --wait</code></pre>
+il copilot --mode agent-task --wait</code></pre>
       </div>
 
       <h2>Inspect sessions</h2>
       <p>
-        Every session is stored with a unique ID. Use <code>intentloop show</code> to inspect metadata,
-        view paths to the raw terminal log, events JSONL, and the generated report.
+        Every session is stored with a unique ID. Use <code>il show</code> to inspect metadata,
+        view metadata and stored <code>memmap_fs</code> stream references, then use <code>il dump</code>
+        to inspect or export stdout, conversation, events, or reports.
       </p>
       <div class="code-block config-block">
-<pre><code>intentloop show a3f9c1e2-7b44-4d8a</code></pre>
+<pre><code>il show a3f9c1e2-7b44-4d8a
+il dump a3f9c1e2-7b44-4d8a conversation
+il dump a3f9c1e2-7b44-4d8a report --output report.md</code></pre>
       </div>
 
       <h2>Intent references</h2>
@@ -169,16 +172,17 @@ title: Login refactor to JWT</code></pre>
       <h2>Local storage</h2>
       <p>
         All session data is stored in <code>~/.intentloop/</code> (or <code>$INTENTLOOP_HOME</code>)
-        with a clean, inspectable layout. SQLite for metadata, flat files for logs and reports.
+        through <code>memmap_fs</code>. IntentLoop no longer creates human-readable
+        <code>sessions/&lt;id&gt;/*.jsonl</code> or <code>report.md</code> files by default.
       </p>
       <div class="code-block config-block">
 <pre><code>~/.intentloop/
-  db.sqlite              # Session metadata
-  sessions/
-    &lt;session_id&gt;/
-      terminal.raw.log   # Full PTY transcript
-      events.jsonl       # Structured events
-      report.md          # Summary report</code></pre>
+  memmap_fs internal files  # KV + streams + search index + WAL
+
+Streams:
+  sessions/&lt;id&gt;/stdout
+  sessions/&lt;id&gt;/conversation
+  sessions/&lt;id&gt;/report</code></pre>
       </div>
 
       <h2>Environment variables</h2>
@@ -199,9 +203,10 @@ INTENTLOOP_HOME=/path/to/custom/store</code></pre>
           <tr><th>Command</th><th>Description</th></tr>
         </thead>
         <tbody>
-          <tr><td>run</td><td><code>intentloop run -- &lt;cmd&gt; [args...]</code> — Record a session wrapping any command</td></tr>
-          <tr><td>copilot</td><td><code>intentloop copilot [--mode auto|copilot|agent-task]</code> — Run GitHub Copilot in a recorded session</td></tr>
-          <tr><td>show</td><td><code>intentloop show &lt;session-id&gt;</code> — Inspect session metadata and artifact paths</td></tr>
+          <tr><td>run</td><td><code>il run &lt;cmd&gt; [args...]</code> — Record a session wrapping any command</td></tr>
+          <tr><td>copilot</td><td><code>il copilot [--mode auto|copilot|agent-task]</code> — Run GitHub Copilot in a recorded session</td></tr>
+          <tr><td>show</td><td><code>il show &lt;session-id&gt;</code> — Inspect session metadata and stream references</td></tr>
+          <tr><td>dump</td><td><code>il dump &lt;session-id&gt; &lt;stream&gt;</code> — Print or export stored streams</td></tr>
         </tbody>
       </table>
 

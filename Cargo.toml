@@ -1,10 +1,10 @@
 [package]
 name = "intent"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "il - one-command recorder for AI coding agents (Cursor, Claude, Copilot...)"
 license = "MIT"
-repository = "https://github.com/lipish/intent"
+repository = "https://github.com/EeroEternal/IntentLoop"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -12,7 +12,7 @@ toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
-uuid = { version = "1", features = ["v4", "v7"] }
+uuid = { version = "1", features = ["v7"] }
 portable-pty = "0.8"
 crossterm = "0.28"
 signal-hook = "0.3"
@@ -20,19 +20,17 @@ dotenvy = "0.15"
 vt100 = "0.15"
 strip-ansi-escapes = "0.2"
 anyhow = "1"
+memmap_fs = "0.1.1"
+thiserror = "2.0.18"
 
 [lib]
 name = "intent"
 path = "src/lib.rs"
 
 [[bin]]
-name = "intent"
-path = "src/main.rs"
-
-[[bin]]
 name = "il"
 path = "src/main.rs"
 
-[[bin]]
-name = "intentloop"
-path = "src/main.rs"
+[dev-dependencies]
+tempfile = "3.27.0"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }

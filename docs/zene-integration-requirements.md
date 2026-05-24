@@ -165,10 +165,13 @@ Zene 已具备 `AgentEvent` 和 `run_stream` 能力，因此需要将该能力�
 
 ## IntentLoop 对接预期（供双方对齐）
 
-IntentLoop 侧将按事件 envelope 直接落盘为：
-- `~/.intentloop/sessions/<session_id>/events.jsonl`
-- `~/.intentloop/sessions/<session_id>/terminal.raw.log`（可选）
-- `~/.intentloop/sessions/<session_id>/report.md`
+IntentLoop 侧将按事件 envelope 写入 `memmap_fs`：
+- `sessions/<session_id>/events`
+- `sessions/<session_id>/stdout`
+- `sessions/<session_id>/report`
+
+默认不生成 `~/.intentloop/sessions/<session_id>/*.jsonl` 或 `report.md` 文件；如需文件，通过
+`il dump <session_id> <stream> --output <path>` 显式导出。
 
 并基于事件流生成：
 - 决策时间线

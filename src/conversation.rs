@@ -31,7 +31,6 @@ pub fn extract_with_snapshots(
     rows: u16,
     cols: u16,
 ) -> (Vec<ScreenSnapshot>, Vec<ConversationTurn>) {
-    let ts = Utc::now().to_rfc3339();
     let user_prompts = parse_stdin_submits(stdin);
     let snapshots = Vt100Recorder::new(rows, cols).replay(stdout);
     let mut turns = Vec::new();
@@ -48,7 +47,7 @@ pub fn extract_with_snapshots(
             turns.push(ConversationTurn {
                 role: "agent".to_string(),
                 text,
-                ts: ts.clone(),
+                ts: Utc::now().to_rfc3339(),
             });
         }
         return (snapshots, turns);
@@ -59,7 +58,7 @@ pub fn extract_with_snapshots(
         turns.push(ConversationTurn {
             role: "user".to_string(),
             text: prompt.clone(),
-            ts: ts.clone(),
+            ts: Utc::now().to_rfc3339(),
         });
 
         let agent_end = if pi + 1 < user_prompts.len() {
@@ -80,7 +79,7 @@ pub fn extract_with_snapshots(
             turns.push(ConversationTurn {
                 role: "agent".to_string(),
                 text,
-                ts: ts.clone(),
+                ts: Utc::now().to_rfc3339(),
             });
         }
 

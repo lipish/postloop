@@ -1,14 +1,14 @@
 use std::collections::HashMap;
+use std::fmt::Write as FmtWrite;
 use std::fs;
-use std::io::Write;
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use uuid::Uuid;
 
 use crate::agent_config::AgentConfig;
 use crate::conversation;
-use crate::intent;
-use crate::pty::{CompatPtySession, PtyEvent};
+use crate::pty::{CaptureWriter, CompatPtySession, PtyEvent};
 use crate::registry::Registry;
 
 use anyhow::anyhow;
@@ -25,9 +25,6 @@ pub struct ExecutionOutput {
     pub conversation: Vec<String>,
     pub normalized: Vec<String>,
     pub ring_buffer: Vec<u8>,
-    /// PTY 模式下原始 stdout/stdin 的磁盘文件路径（流式捕获产物，可用于超大日志事后分析）
-    pub stdout_raw_path: Option<std::path::PathBuf>,
-    pub stdin_raw_path: Option<std::path::PathBuf>,
 }
 
 pub fn run_session(
@@ -37,114 +34,65 @@ pub fn run_session(
     extra_env: &HashMap<String, String>,
 ) -> Result<(), anyhow::Error> {
     let registry = Registry::init(&repo_root)?;
-    let intent = intent::load_intent(&repo_root);
 
     let session_id = Uuid::now_v7().to_string();
-    let session_dir = registry.session_dir_path(&session_id);
-    fs::create_dir_all(&session_dir)?;
-    let log_path = registry.session_log_path(&session_id);
+    let log_ref = format!("memmap_fs:sessions/{}/stdout", session_id);
 
     let agent_cmd = command.join(" ");
-    registry.create_session(
-        &session_id,
-        &intent.id,
-        &intent.title,
-        &agent_cmd,
-        &repo_root,
-        &log_path,
-    )?;
+    registry.create_session(&session_id, &agent_cmd, &repo_root, &log_ref)?;
 
     println!("▶ Running session: {}", session_id);
-    println!("Intent: {} ({})", intent.title, intent.id);
     println!("Command: {}", agent_cmd);
     if interactive {
         println!("Mode: PTY interactive");
     }
 
     let execution = if interactive {
-        // 为 PTY 交互会话创建原始流式捕获文件（核心内存优化）
-        let stdout_raw_path = session_dir.join("terminal.stdout.raw");
-        let stdin_raw_path = session_dir.join("terminal.stdin.raw");
-        let stdout_file = fs::File::create(&stdout_raw_path)?;
-        let stdin_file = fs::File::create(&stdin_raw_path)?;
-
-        execute_with_pty(
-            &repo_root,
-            &command,
-            extra_env,
-            stdout_raw_path,
-            stdin_raw_path,
-            stdout_file,
-            stdin_file,
-        )?
+        execute_with_pty(&registry, &session_id, &repo_root, &command, extra_env)?
     } else {
-        execute_non_interactive(&repo_root, &command, extra_env)?
+        let execution = execute_non_interactive(&repo_root, &command, extra_env)?;
+        registry.append_stream(&session_id, "stdout", &execution.stdout_bytes)?;
+        registry.append_stream(&session_id, "stderr", execution.stderr.as_bytes())?;
+        execution
     };
 
-    let mut log_file = fs::File::create(&log_path)?;
-    writeln!(log_file, "# session_id: {}", session_id)?;
-    writeln!(log_file, "# intent_id: {}", intent.id)?;
-    writeln!(log_file, "# intent_title: {}", intent.title)?;
-    writeln!(log_file, "# command: {}", agent_cmd)?;
-    writeln!(
-        log_file,
-        "# mode: {}",
-        if interactive {
-            "pty"
-        } else {
-            "non-interactive"
-        }
-    )?;
-    writeln!(log_file)?;
-    if !execution.stdin_bytes.is_empty() {
-        writeln!(log_file, "[stdin]")?;
-        log_file.write_all(&execution.stdin_bytes)?;
-        writeln!(log_file)?;
-    }
-    writeln!(log_file, "[stdout]")?;
-    log_file.write_all(&execution.stdout_bytes)?;
-    writeln!(log_file)?;
-    writeln!(log_file, "[stderr]")?;
-    writeln!(log_file, "{}", execution.stderr)?;
-
     if !execution.structured_events.is_empty() {
-        let events_path = session_dir.join("events.jsonl");
-        let mut events_file = fs::File::create(&events_path)?;
-        for ev in &execution.structured_events {
-            writeln!(events_file, "{}", ev)?;
-        }
-        println!("Structured events: {}", events_path.display());
+        append_jsonl_stream(
+            &registry,
+            &session_id,
+            "events",
+            &execution.structured_events,
+        )?;
+        println!(
+            "Structured events: memmap_fs:sessions/{}/events",
+            session_id
+        );
     }
 
     if !execution.normalized.is_empty() {
-        let norm_path = session_dir.join("terminal.normalized.jsonl");
-        let mut norm_file = fs::File::create(&norm_path)?;
-        for line in &execution.normalized {
-            writeln!(norm_file, "{}", line)?;
-        }
-        println!("VT100 normalized: {}", norm_path.display());
+        append_jsonl_stream(&registry, &session_id, "normalized", &execution.normalized)?;
+        println!(
+            "VT100 normalized: memmap_fs:sessions/{}/normalized",
+            session_id
+        );
     }
 
     if !execution.conversation.is_empty() {
-        let conv_path = session_dir.join("conversation.jsonl");
-        let mut conv_file = fs::File::create(&conv_path)?;
-        for line in &execution.conversation {
-            writeln!(conv_file, "{}", line)?;
-        }
-        println!("Conversation log: {}", conv_path.display());
+        append_jsonl_stream(
+            &registry,
+            &session_id,
+            "conversation",
+            &execution.conversation,
+        )?;
+        println!(
+            "Conversation log: memmap_fs:sessions/{}/conversation",
+            session_id
+        );
     }
 
     if !execution.ring_buffer.is_empty() {
-        let ring_path = session_dir.join("terminal.ring.bin");
-        fs::write(&ring_path, &execution.ring_buffer)?;
-        println!("Ring buffer: {}", ring_path.display());
-    }
-
-    if let Some(p) = &execution.stdout_raw_path {
-        println!("Raw stdout stream: {}", p.display());
-    }
-    if let Some(p) = &execution.stdin_raw_path {
-        println!("Raw stdin stream: {}", p.display());
+        registry.append_stream(&session_id, "ring", &execution.ring_buffer)?;
+        println!("Ring buffer: memmap_fs:sessions/{}/ring", session_id);
     }
 
     let stdout_lines: Vec<String> = execution.stdout.lines().map(str::to_string).collect();
@@ -174,10 +122,25 @@ pub fn run_session(
     };
     registry.complete_session(&session_id, status, execution.exit_code)?;
 
-    generate_min_report(&registry, &session_id)?;
+    // Index conversation for full-text search
+    if !execution.conversation.is_empty() {
+        if let Err(e) = registry.index_conversation(&session_id, &execution.conversation) {
+            eprintln!("Warning: Failed to index conversation: {}", e);
+        }
+    }
+
+    let report = generate_min_report(&registry, &session_id)?;
+    if !report.is_empty() {
+        registry.append_stream(&session_id, "report", report.as_bytes())?;
+        println!("Report: memmap_fs:sessions/{}/report", session_id);
+    }
 
     println!("✓ Session saved: {}", session_id);
-    println!("Raw log: {}", log_path.display());
+    println!(
+        "Raw stdout stream: memmap_fs:sessions/{}/stdout",
+        session_id
+    );
+    println!("Raw stdin stream: memmap_fs:sessions/{}/stdin", session_id);
 
     if !execution.success {
         return Err(anyhow!(
@@ -190,6 +153,21 @@ pub fn run_session(
     }
 
     Ok(())
+}
+
+fn append_jsonl_stream(
+    registry: &Registry,
+    session_id: &str,
+    stream: &str,
+    lines: &[String],
+) -> Result<(), anyhow::Error> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+
+    let mut jsonl = lines.join("\n");
+    jsonl.push('\n');
+    registry.append_stream(session_id, stream, jsonl.as_bytes())
 }
 
 pub fn cmd_run(agent: String, extra_args: Vec<String>) -> Result<(), anyhow::Error> {
@@ -236,7 +214,6 @@ pub fn cmd_show(session_id: &str) -> Result<(), anyhow::Error> {
     };
 
     println!("Session: {}", session.id);
-    println!("Intent: {} ({})", session.intent_title, session.intent_id);
     println!("Status: {}", session.status);
     println!("Started: {}", session.start_at);
     println!(
@@ -252,21 +229,48 @@ pub fn cmd_show(session_id: &str) -> Result<(), anyhow::Error> {
     );
     println!("Command: {}", session.agent_cmd);
     println!("Thought events: {}", session.thought_count);
-    println!("Raw log: {}", session.log_path);
+    println!(
+        "Raw stdout stream: memmap_fs:sessions/{}/stdout",
+        session.id
+    );
+    println!("Raw stdin stream: memmap_fs:sessions/{}/stdin", session.id);
 
-    let report_path = registry.session_report_path(session_id);
-    if report_path.exists() {
-        println!("Report: {}", report_path.display());
+    print_stream_ref_if_present(&registry, session_id, "conversation", "Conversation")?;
+    print_stream_ref_if_present(&registry, session_id, "events", "Structured events")?;
+    print_stream_ref_if_present(&registry, session_id, "normalized", "VT100 normalized")?;
+    print_stream_ref_if_present(&registry, session_id, "thoughts", "Thought events")?;
+    print_stream_ref_if_present(&registry, session_id, "report", "Report")?;
+
+    if let Ok(ring) = registry.read_stream_to_bytes(session_id, "ring") {
+        if !ring.is_empty() {
+            println!(
+                "Ring buffer: memmap_fs:sessions/{}/ring ({} bytes)",
+                session_id,
+                ring.len()
+            );
+        }
     }
 
-    let ring_path = registry
-        .session_dir_path(session_id)
-        .join("terminal.ring.bin");
-    if ring_path.exists() {
-        let size = fs::metadata(&ring_path)?.len();
-        println!("Ring buffer: {} ({} bytes)", ring_path.display(), size);
-    }
+    Ok(())
+}
 
+fn print_stream_ref_if_present(
+    registry: &Registry,
+    session_id: &str,
+    stream: &str,
+    label: &str,
+) -> Result<(), anyhow::Error> {
+    if let Ok(bytes) = registry.read_stream_to_bytes(session_id, stream) {
+        if !bytes.is_empty() {
+            println!(
+                "{}: memmap_fs:sessions/{}/{} ({} bytes)",
+                label,
+                session_id,
+                stream,
+                bytes.len()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -280,21 +284,10 @@ pub fn cmd_list() -> Result<(), anyhow::Error> {
         return Ok(());
     }
 
-    println!(
-        "{:<38} {:<24} {:<12} {:<28}",
-        "SESSION ID", "INTENT", "STATUS", "STARTED AT"
-    );
-    println!("{}", "-".repeat(105));
+    println!("{:<38} {:<12} {:<28}", "SESSION ID", "STATUS", "STARTED AT");
+    println!("{}", "-".repeat(80));
     for s in sessions {
-        let intent_title = if s.intent_title.len() > 24 {
-            format!("{}...", &s.intent_title[..21])
-        } else {
-            s.intent_title.clone()
-        };
-        println!(
-            "{:<38} {:<24} {:<12} {:<28}",
-            s.id, intent_title, s.status, s.start_at
-        );
+        println!("{:<38} {:<12} {:<28}", s.id, s.status, s.start_at);
     }
     Ok(())
 }
@@ -312,17 +305,20 @@ pub fn cmd_attach(session_id: &str) -> Result<(), anyhow::Error> {
         ));
     }
 
-    let ring_path = registry
-        .session_dir_path(session_id)
-        .join("terminal.ring.bin");
-    if !ring_path.exists() {
+    let ring = registry
+        .read_stream_to_bytes(session_id, "ring")
+        .map_err(|_| {
+            anyhow!(
+                "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
+                session_id
+            )
+        })?;
+    if ring.is_empty() {
         return Err(anyhow!(
             "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
             session_id
         ));
     }
-
-    let ring = fs::read(&ring_path)?;
     let preview = String::from_utf8_lossy(&ring);
     let tail: String = preview
         .chars()
@@ -342,6 +338,83 @@ pub fn cmd_attach(session_id: &str) -> Result<(), anyhow::Error> {
     }
 
     Ok(())
+}
+
+pub fn cmd_search(query: &str, limit: usize) -> Result<(), anyhow::Error> {
+    let repo_root = std::env::current_dir()?;
+    let registry = Registry::init(&repo_root)?;
+    let results = registry.search(query, limit)?;
+
+    if results.is_empty() {
+        println!("No results found for: {}", query);
+        return Ok(());
+    }
+
+    println!("Search results for: {}", query);
+    println!("{}", "-".repeat(80));
+    println!("{:<38} {:<12} {:<28}", "SESSION ID", "STATUS", "STARTED AT");
+    println!("{}", "-".repeat(80));
+
+    for result in results {
+        println!(
+            "{:<38} {:<12} {:<28}",
+            result.session_id, result.session.status, result.session.start_at
+        );
+    }
+
+    Ok(())
+}
+
+pub fn cmd_dump(
+    session_id: &str,
+    stream: &str,
+    output: Option<&Path>,
+) -> Result<(), anyhow::Error> {
+    let repo_root = std::env::current_dir()?;
+    let registry = Registry::init(&repo_root)?;
+    if registry.get_session(session_id)?.is_none() {
+        return Err(anyhow!("Session not found: {}", session_id));
+    }
+
+    let stream = normalize_dump_stream(stream)?;
+    let bytes = registry
+        .read_stream_to_bytes(session_id, stream)
+        .map_err(|_| {
+            anyhow!(
+                "Stream not found: memmap_fs:sessions/{}/{}",
+                session_id,
+                stream
+            )
+        })?;
+
+    if let Some(path) = output {
+        let mut file = fs::File::create(path)?;
+        file.write_all(&bytes)?;
+        println!(
+            "Wrote {} bytes from memmap_fs:sessions/{}/{} to {}",
+            bytes.len(),
+            session_id,
+            stream,
+            path.display()
+        );
+    } else {
+        let mut stdout = std::io::stdout();
+        stdout.write_all(&bytes)?;
+        stdout.flush()?;
+    }
+
+    Ok(())
+}
+
+fn normalize_dump_stream(stream: &str) -> Result<&str, anyhow::Error> {
+    match stream {
+        "stdout" | "stdin" | "stderr" | "ring" | "events" | "normalized" | "conversation"
+        | "thoughts" | "report" => Ok(stream),
+        _ => Err(anyhow!(
+            "Unknown stream '{}'. Expected one of: stdout, stdin, stderr, ring, events, normalized, conversation, thoughts, report",
+            stream
+        )),
+    }
 }
 
 fn execute_non_interactive(
@@ -376,20 +449,19 @@ fn execute_non_interactive(
         conversation: Vec::new(),
         normalized: Vec::new(),
         ring_buffer: Vec::new(),
-        stdout_raw_path: None,
-        stdin_raw_path: None,
     })
 }
 
 fn execute_with_pty(
+    registry: &Registry,
+    session_id: &str,
     repo_root: &Path,
     command: &[String],
     extra_env: &HashMap<String, String>,
-    stdout_raw_path: std::path::PathBuf,
-    stdin_raw_path: std::path::PathBuf,
-    stdout_capture: std::fs::File,
-    stdin_capture: std::fs::File,
 ) -> Result<ExecutionOutput, anyhow::Error> {
+    let stdout_capture: CaptureWriter = Box::new(registry.stream_writer(session_id, "stdout"));
+    let stdin_capture: CaptureWriter = Box::new(registry.stream_writer(session_id, "stdin"));
+
     let mut session = CompatPtySession::spawn(
         command,
         repo_root,
@@ -408,9 +480,13 @@ fn execute_with_pty(
     let status = session.wait()?;
     let (events, ring_buffer) = session.take_captures();
 
-    // PTY 结束 → 从磁盘文件读取完整原始流（此时才短暂占用内存，用于对话提取等后处理）
-    let stdout_bytes = std::fs::read(&stdout_raw_path).unwrap_or_default();
-    let stdin_bytes = std::fs::read(&stdin_raw_path).unwrap_or_default();
+    // PTY 结束 → 从 memmap_fs stream 读取完整原始流（仅用于对话提取等后处理）
+    let stdout_bytes = registry
+        .read_stream_to_bytes(session_id, "stdout")
+        .unwrap_or_default();
+    let stdin_bytes = registry
+        .read_stream_to_bytes(session_id, "stdin")
+        .unwrap_or_default();
 
     let raw_stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
     let stdout = strip_ansi_escapes::strip_str(&raw_stdout);
@@ -436,8 +512,6 @@ fn execute_with_pty(
         conversation,
         normalized,
         ring_buffer,
-        stdout_raw_path: Some(stdout_raw_path),
-        stdin_raw_path: Some(stdin_raw_path),
     })
 }
 
@@ -448,31 +522,33 @@ fn events_to_jsonl(events: &[PtyEvent]) -> Vec<String> {
         .collect()
 }
 
-fn generate_min_report(registry: &Registry, session_id: &str) -> Result<(), anyhow::Error> {
+fn generate_min_report(registry: &Registry, session_id: &str) -> Result<String, anyhow::Error> {
     let Some(session) = registry.get_session(session_id)? else {
-        return Ok(());
+        return Ok(String::new());
     };
 
-    let report_path = registry.session_report_path(session_id);
-    let mut report_file = fs::File::create(report_path)?;
-
-    writeln!(report_file, "# Session {}", session.id)?;
-    writeln!(report_file)?;
+    let mut report = String::new();
+    writeln!(report, "# Session {}", session.id)?;
+    writeln!(report)?;
+    writeln!(report, "- Status: {}", session.status)?;
+    writeln!(report, "- Start: {}", session.start_at)?;
     writeln!(
-        report_file,
-        "- Intent: {} ({})",
-        session.intent_title, session.intent_id
-    )?;
-    writeln!(report_file, "- Status: {}", session.status)?;
-    writeln!(report_file, "- Start: {}", session.start_at)?;
-    writeln!(
-        report_file,
+        report,
         "- End: {}",
         session.end_at.unwrap_or_else(|| "(running)".to_string())
     )?;
-    writeln!(report_file, "- Command: {}", session.agent_cmd)?;
-    writeln!(report_file, "- Thought events: {}", session.thought_count)?;
-    writeln!(report_file, "- Raw log: {}", session.log_path)?;
+    writeln!(report, "- Command: {}", session.agent_cmd)?;
+    writeln!(report, "- Thought events: {}", session.thought_count)?;
+    writeln!(
+        report,
+        "- Raw stdout stream: memmap_fs:sessions/{}/stdout",
+        session.id
+    )?;
+    writeln!(
+        report,
+        "- Raw stdin stream: memmap_fs:sessions/{}/stdin",
+        session.id
+    )?;
 
-    Ok(())
+    Ok(report)
 }

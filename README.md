@@ -6,7 +6,7 @@
 il run cursor
 ```
 
-`il` is the simplest way to record your full interactive sessions with Cursor, Claude, Copilot, Kimi, Aider — or any terminal tool. (The same binary can also be invoked as `intentloop` or `intent` if you create symlinks.)
+`il` is the simplest way to record your full interactive sessions with Cursor, Claude, Copilot, Kimi, Aider — or any terminal tool.
 
 It captures every keystroke, the complete PTY output, conversation turns, and gives you a ring buffer to replay the tail later. All privately on your machine.
 
@@ -52,7 +52,7 @@ il run kimi
 
 - Launches the program exactly as you normally would (full environment, API keys, login state, everything).
 - Records the complete interactive PTY session.
-- Saves everything under `~/.intentloop/sessions/<id>/`
+- Persists session data through `memmap_fs` under `~/.intentloop`.
 
 No `agents.toml` is needed unless you want custom shell activation (conda, venv, etc.).
 
@@ -62,17 +62,7 @@ No `agents.toml` is needed unless you want custom shell activation (conda, venv,
 il list
 il show <session-id>
 il attach <session-id>     # replay the last ~2000 characters of the session
-```
-
-## Optional: INTENT.md
-
-If you put an `INTENT.md` file with `id:` and `title:` at the top in your project root, the session is automatically tagged with that intent. Great for later searching or grouping related work.
-
-Example:
-
-```md
-id: payment-refactor
-title: Migrate billing to new payment provider
+il dump <session-id> stdout
 ```
 
 ## Optional: .intent/agents.toml (advanced)
@@ -83,7 +73,9 @@ Only create this file when you need:
 - Always pass the same extra flags
 - Give a short alias to a long command
 
-See `.intentloop/agents.toml.example` for the format. Most users never need this file.
+Most users never need this file. If you do, create `.intent/agents.toml` manually with an
+`[agents.<name>]` entry that specifies `command`, optional `args`, optional `shell_setup`,
+and optional `env_whitelist`.
 
 ## Commands
 
@@ -91,25 +83,30 @@ See `.intentloop/agents.toml.example` for the format. Most users never need this
 |--------------------------|---------------------------------------------------|
 | `il run <name>`          | Launch `<name>` (from PATH or agents.toml) and record the full PTY session |
 | `il list`                | List recent recorded sessions                     |
-| `il show <id>`           | Show metadata and report location for a session   |
+| `il show <id>`           | Show metadata and stored stream references        |
 | `il attach <id>`         | Replay the tail of the ring buffer (last ~2000 chars) |
+| `il search <query>`      | Search recorded session conversations             |
+| `il dump <id> <stream>`  | Dump a stored stream (`stdout`, `conversation`, `report`, etc.) |
 | `il copilot ...`         | Run GitHub Copilot CLI inside a recorded session (advanced) |
 
-`il`, `intentloop`, and `intent` are the exact same binary (when symlinked or built from source). The official macOS package only ships `il`.
+The official macOS package only ships the `il` binary.
 
 ## Storage
 
 All recordings go to `~/.intentloop` (or `$INTENTLOOP_HOME` if set). This keeps your git repos clean.
+Session metadata, raw terminal streams, derived artifacts, and search indexes are persisted through `memmap_fs`.
 
 ```text
 ~/.intentloop/
-  sessions/
-    <session-id>/
-      meta.json
-      terminal.raw.log          # original PTY stream
-      conversation.jsonl
-      terminal.ring.bin         # circular buffer for fast tail replay
-      report.md
+  memmap_fs files              # KV + streams + search index + WAL
+```
+
+Default session data is not exposed as `sessions/<id>/*.jsonl` files. Use `il` to inspect or export it:
+
+```bash
+il dump <session-id> stdout
+il dump <session-id> conversation
+il dump <session-id> report --output report.md
 ```
 
 ```bash
@@ -123,7 +120,7 @@ The only thing you ever put in your repo (optional) is `.intent/agents.toml` whe
 - Zero-config recording of any agent already in your PATH (`il run cursor`, etc.)
 - Full PTY capture (even TUI, arrow keys, multi-line prompts)
 - Conversation extraction + ring buffer for instant tail replay (`il attach`)
-- Automatic tagging via optional `INTENT.md`
+- Full-text search across extracted conversations (`il search`)
 - Optional advanced profiles in `.intent/agents.toml`
 
 Roadmap (soon):

@@ -2,8 +2,6 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
-use crate::intent;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CopilotMode {
     Auto,
@@ -17,7 +15,6 @@ pub fn build_gh_agent_command(
     selected_mode: CopilotMode,
     prompt: Option<String>,
     mut args: Vec<String>,
-    intent_info: &intent::IntentInfo,
     wait: bool,
 ) -> Vec<String> {
     let mut cmd = vec!["gh".to_string()];
@@ -31,10 +28,13 @@ pub fn build_gh_agent_command(
             }
 
             if args.is_empty() {
-                let final_prompt =
-                    prompt.unwrap_or_else(|| intent::build_copilot_prompt(intent_info));
-                cmd.push("suggest".to_string());
-                cmd.push(final_prompt);
+                if let Some(p) = prompt {
+                    cmd.push("suggest".to_string());
+                    cmd.push(p);
+                } else {
+                    // No prompt provided, just run interactive mode
+                    cmd.push("suggest".to_string());
+                }
             } else {
                 cmd.extend(args);
             }
@@ -43,10 +43,10 @@ pub fn build_gh_agent_command(
             cmd.push("agent-task".to_string());
 
             if args.is_empty() {
-                let final_prompt =
-                    prompt.unwrap_or_else(|| intent::build_copilot_prompt(intent_info));
                 cmd.push("create".to_string());
-                cmd.push(final_prompt);
+                if let Some(p) = prompt {
+                    cmd.push(p);
+                }
                 if wait {
                     cmd.push("--follow".to_string());
                 }

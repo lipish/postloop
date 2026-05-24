@@ -3,4 +3,4 @@ pub mod content_filter;
 pub mod terminal_input;
 pub mod vt100_recorder;
 
-pub use compat::{CompatPtySession, PtyEvent};
+pub use compat::{CaptureWriter, CompatPtySession, PtyEvent};

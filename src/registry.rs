@@ -1,13 +1,11 @@
 use chrono::Utc;
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use crate::storage::{Storage, StreamWriter};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionSummary {
     pub id: String,
-    pub intent_id: String,
-    pub intent_title: String,
     pub agent_cmd: String,
     pub cwd: String,
     pub status: String,
@@ -27,47 +25,42 @@ pub struct ThoughtEvent {
 }
 
 pub struct Registry {
-    storage_root: PathBuf,
+    storage: Storage,
 }
 
 impl Registry {
     pub fn init(repo_root: &Path) -> Result<Self, anyhow::Error> {
         let storage_root = resolve_storage_root(repo_root);
-        let sessions_dir = storage_root.join("sessions");
-        fs::create_dir_all(&sessions_dir)?;
 
-        Ok(Self { storage_root })
+        // Initialize memmap_fs storage
+        let storage = Storage::init(&storage_root)?;
+
+        Ok(Self { storage })
     }
 
     pub fn create_session(
         &self,
         session_id: &str,
-        intent_id: &str,
-        intent_title: &str,
         agent_cmd: &str,
         cwd: &Path,
-        log_path: &Path,
+        log_ref: &str,
     ) -> Result<(), anyhow::Error> {
         let meta = SessionSummary {
             id: session_id.to_string(),
-            intent_id: intent_id.to_string(),
-            intent_title: intent_title.to_string(),
             agent_cmd: agent_cmd.to_string(),
             cwd: cwd.to_string_lossy().to_string(),
             status: "running".to_string(),
             start_at: Utc::now().to_rfc3339(),
             end_at: None,
             exit_code: None,
-            log_path: log_path.to_string_lossy().to_string(),
+            log_path: log_ref.to_string(),
             thought_count: 0,
         };
 
-        let session_dir = self.session_dir_path(session_id);
-        fs::create_dir_all(&session_dir)?;
+        // Store in memmap_fs
+        self.storage.put_session(&meta)?;
+        self.storage.index_session(session_id)?;
 
-        let meta_path = session_dir.join("meta.json");
-        let content = serde_json::to_string_pretty(&meta)?;
-        fs::write(meta_path, content)?;
         Ok(())
     }
 
@@ -78,16 +71,9 @@ impl Registry {
         lines: &[String],
         start_seq: i64,
     ) -> Result<(i64, i64), anyhow::Error> {
-        let session_dir = self.session_dir_path(session_id);
-        let events_path = session_dir.join("thought_events.jsonl");
-
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&events_path)?;
-
         let mut seq = start_seq;
         let mut added_count = 0;
+        let mut jsonl = String::new();
         for line in lines {
             if line.trim().is_empty() {
                 continue;
@@ -101,9 +87,14 @@ impl Registry {
             };
 
             let serialized = serde_json::to_string(&ev)?;
-            writeln!(file, "{}", serialized)?;
+            jsonl.push_str(&serialized);
+            jsonl.push('\n');
             seq += 1;
             added_count += 1;
+        }
+
+        if !jsonl.is_empty() {
+            self.append_stream(session_id, "thoughts", jsonl.as_bytes())?;
         }
 
         Ok((seq, added_count))
@@ -114,16 +105,11 @@ impl Registry {
         session_id: &str,
         thought_count: i64,
     ) -> Result<(), anyhow::Error> {
-        let meta_path = self.session_dir_path(session_id).join("meta.json");
-        if !meta_path.exists() {
-            return Ok(());
+        // Update in memmap_fs
+        if let Some(mut meta) = self.storage.get_session(session_id)? {
+            meta.thought_count = thought_count;
+            self.storage.put_session(&meta)?;
         }
-
-        let content = fs::read_to_string(&meta_path)?;
-        let mut meta: SessionSummary = serde_json::from_str(&content)?;
-        meta.thought_count = thought_count;
-        let new_content = serde_json::to_string_pretty(&meta)?;
-        fs::write(&meta_path, new_content)?;
         Ok(())
     }
 
@@ -133,67 +119,99 @@ impl Registry {
         status: &str,
         exit_code: Option<i32>,
     ) -> Result<(), anyhow::Error> {
-        let meta_path = self.session_dir_path(session_id).join("meta.json");
-        if meta_path.exists() {
-            let content = fs::read_to_string(&meta_path)?;
-            let mut meta: SessionSummary = serde_json::from_str(&content)?;
+        // Update in memmap_fs
+        if let Some(mut meta) = self.storage.get_session(session_id)? {
             meta.status = status.to_string();
             meta.end_at = Some(Utc::now().to_rfc3339());
             meta.exit_code = exit_code.map(|v| v as i64);
-            let new_content = serde_json::to_string_pretty(&meta)?;
-            fs::write(&meta_path, new_content)?;
+            self.storage.put_session(&meta)?;
         }
         Ok(())
     }
 
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionSummary>, anyhow::Error> {
-        let meta_path = self.session_dir_path(session_id).join("meta.json");
-        if !meta_path.exists() {
-            return Ok(None);
-        }
-        let content = fs::read_to_string(&meta_path)?;
-        let meta: SessionSummary = serde_json::from_str(&content)?;
-        Ok(Some(meta))
+        Ok(self.storage.get_session(session_id)?)
     }
 
     pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, anyhow::Error> {
-        let sessions_dir = self.storage_root.join("sessions");
-        if !sessions_dir.exists() {
-            return Ok(Vec::new());
-        }
+        Ok(self.storage.list_sessions()?)
+    }
 
-        let mut sessions = Vec::new();
-        for entry in fs::read_dir(sessions_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                let meta_path = path.join("meta.json");
-                if meta_path.exists() {
-                    if let Ok(content) = fs::read_to_string(&meta_path) {
-                        if let Ok(meta) = serde_json::from_str::<SessionSummary>(&content) {
-                            sessions.push(meta);
-                        }
-                    }
+    pub fn append_stream(
+        &self,
+        session_id: &str,
+        stream: &str,
+        data: &[u8],
+    ) -> Result<(), anyhow::Error> {
+        Ok(self.storage.append_stream(session_id, stream, data)?)
+    }
+
+    pub fn stream_writer(&self, session_id: &str, stream: &str) -> StreamWriter {
+        self.storage.stream_writer(session_id, stream)
+    }
+
+    pub fn read_stream_to_bytes(
+        &self,
+        session_id: &str,
+        stream: &str,
+    ) -> Result<Vec<u8>, anyhow::Error> {
+        Ok(self.storage.read_stream_to_bytes(session_id, stream)?)
+    }
+
+    // ─── Full-text Search ─────────────────────────────────────────────────────
+
+    /// Index conversation content for full-text search.
+    pub fn index_conversation(
+        &self,
+        session_id: &str,
+        conversation: &[String],
+    ) -> Result<(), anyhow::Error> {
+        // Index each conversation turn
+        for (i, turn) in conversation.iter().enumerate() {
+            let key = format!("{}/turn/{}", session_id, i);
+            self.storage.index_text(&key, turn)?;
+        }
+        Ok(())
+    }
+
+    /// Search across all indexed conversations.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>, anyhow::Error> {
+        let hits = self.storage.search(query, limit)?;
+        let mut results = Vec::new();
+
+        for hit in hits {
+            // Parse session_id from key (format: "session_id/turn/N")
+            let parts: Vec<&str> = hit.key.split('/').collect();
+            if let Some(session_id) = parts.first() {
+                if let Some(session) = self.get_session(session_id)? {
+                    results.push(SearchResult {
+                        session_id: session_id.to_string(),
+                        session,
+                        score: hit.score,
+                    });
                 }
             }
         }
 
-        // Sort by start_at descending
-        sessions.sort_by(|a, b| b.start_at.cmp(&a.start_at));
-        Ok(sessions)
-    }
+        // Deduplicate by session_id, keeping highest score
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut seen = std::collections::HashSet::new();
+        results.retain(|r| seen.insert(r.session_id.clone()));
 
-    pub fn session_log_path(&self, session_id: &str) -> PathBuf {
-        self.session_dir_path(session_id).join("terminal.raw.log")
+        Ok(results)
     }
+}
 
-    pub fn session_report_path(&self, session_id: &str) -> PathBuf {
-        self.session_dir_path(session_id).join("report.md")
-    }
-
-    pub fn session_dir_path(&self, session_id: &str) -> PathBuf {
-        self.storage_root.join("sessions").join(session_id)
-    }
+/// A search result with session metadata.
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub session_id: String,
+    pub session: SessionSummary,
+    pub score: f32,
 }
 
 fn resolve_storage_root(repo_root: &Path) -> PathBuf {
@@ -216,4 +234,53 @@ fn resolve_storage_root(repo_root: &Path) -> PathBuf {
 
     // 无 HOME 环境（如某些容器）下的最后回退：放 repo/.intent/sessions（该目录通常已在 .gitignore）
     repo_root.join(".intent")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn create_session_persists_metadata_without_business_session_files() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::init(dir.path()).unwrap();
+        let registry = Registry { storage };
+
+        registry
+            .create_session(
+                "test-session",
+                "echo hello",
+                Path::new("/tmp"),
+                "memmap_fs:sessions/test-session/stdout",
+            )
+            .unwrap();
+
+        let session = registry.get_session("test-session").unwrap().unwrap();
+        assert_eq!(session.id, "test-session");
+        assert_eq!(session.log_path, "memmap_fs:sessions/test-session/stdout");
+        assert!(!dir.path().join("sessions").join("test-session").exists());
+    }
+
+    #[test]
+    fn add_thought_events_writes_jsonl_to_memmap_stream() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::init(dir.path()).unwrap();
+        let registry = Registry { storage };
+        let lines = vec!["first".to_string(), "".to_string(), "second".to_string()];
+
+        let (next_seq, added) = registry
+            .add_thought_events("test-session", "stdout", &lines, 7)
+            .unwrap();
+
+        assert_eq!(next_seq, 9);
+        assert_eq!(added, 2);
+        let bytes = registry
+            .read_stream_to_bytes("test-session", "thoughts")
+            .unwrap();
+        let content = String::from_utf8(bytes).unwrap();
+        assert!(content.contains("\"seq\":7"));
+        assert!(content.contains("\"event_type\":\"stdout\""));
+        assert!(content.contains("\"content\":\"second\""));
+    }
 }

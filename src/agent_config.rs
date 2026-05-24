@@ -33,7 +33,7 @@ impl AgentConfig {
     /// Load agents.toml with the following priority:
     /// 1. .intent/agents.toml in current directory or any parent directory (walk up)
     /// 2. ~/.intent/agents.toml (user global config)
-    /// 3. Legacy: .intentloop/agents.toml (for backward compatibility)
+    /// 3. Legacy: .intentloop/agents.toml (read-only backward compatibility; not documented)
     pub fn load(start_dir: &Path) -> Self {
         // 1. Walk up from start_dir to find .intent/agents.toml
         let mut dir = start_dir.to_path_buf();

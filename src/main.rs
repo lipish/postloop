@@ -1,9 +1,11 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use intent::copilot::{self, CopilotMode};
 use intent::session;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "il")]
+#[command(version)]
 #[command(about = "il - record full AI agent sessions with one command", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -48,7 +50,7 @@ enum Commands {
     },
     /// Run GitHub Copilot CLI in an IntentLoop session
     Copilot {
-        /// Prompt passed to `gh copilot suggest`; defaults to INTENT.md-derived prompt
+        /// Prompt passed to `gh copilot suggest`
         #[arg(short, long)]
         prompt: Option<String>,
         /// Backend mode: auto (detect), copilot (`gh copilot`), or agent-task (`gh agent-task`)
@@ -60,7 +62,7 @@ enum Commands {
         /// Wait for final result when backend supports it (agent-task -> --follow)
         #[arg(long)]
         wait: bool,
-        /// Raw args for `gh copilot`, e.g. `intent copilot -- suggest "fix auth bug"`
+        /// Raw args for `gh copilot`, e.g. `il copilot -- suggest "fix auth bug"`
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
@@ -73,6 +75,24 @@ enum Commands {
     List,
     /// Replay the saved ring buffer tail for a completed session
     Attach { session_id: String },
+    /// Search across all session conversations
+    Search {
+        /// Search query
+        query: String,
+        /// Maximum number of results
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Dump a stored memmap_fs stream for a session
+    Dump {
+        /// Session ID
+        session_id: String,
+        /// Stream name: stdout, stdin, stderr, ring, events, normalized, conversation, thoughts, report
+        stream: String,
+        /// Write output to a file instead of stdout
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -92,6 +112,12 @@ fn main() {
         Commands::Show { session_id } => session::cmd_show(&session_id),
         Commands::List => session::cmd_list(),
         Commands::Attach { session_id } => session::cmd_attach(&session_id),
+        Commands::Search { query, limit } => session::cmd_search(&query, limit),
+        Commands::Dump {
+            session_id,
+            stream,
+            output,
+        } => session::cmd_dump(&session_id, &stream, output.as_deref()),
     };
 
     if let Err(e) = result {
@@ -108,11 +134,10 @@ fn cmd_copilot(
     args: Vec<String>,
 ) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
-    let intent = intent::load_intent(&repo_root);
 
     let selected_mode =
         copilot::resolve_copilot_mode(&repo_root, mode, args.first().map(String::as_str));
-    let command = copilot::build_gh_agent_command(selected_mode, prompt, args, &intent, wait);
+    let command = copilot::build_gh_agent_command(selected_mode, prompt, args, wait);
 
     println!("Copilot backend: {}", copilot::mode_label(selected_mode));
     if wait {
