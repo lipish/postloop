@@ -1,0 +1,361 @@
+/* ═══════════════════════════════════════════════════════════════
+   intentloop.dev — Modern SaaS-inspired landing page
+   Dual theme: Dark / Light Blue
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ── Variables ──────────────────────────────────────────────── */
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --transition: 0.25s ease;
+  --content-width: 660px;
+}
+
+/* ── Dark Theme ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg: #0b0b0f;
+  --text: #c8c8d0;
+  --text-muted: #6a6a80;
+  --heading: #e4e4eb;
+  --accent: #00b4d8;
+  --accent-dim: rgba(0, 180, 216, 0.12);
+  --link: #00a5c8;
+  --link-hover: #33c8e8;
+  --border: rgba(255, 255, 255, 0.07);
+  --code-bg: rgba(255, 255, 255, 0.05);
+  --code-text: #80c8e0;
+  --install-bg: rgba(0, 180, 216, 0.06);
+  --install-border: rgba(0, 180, 216, 0.18);
+  --terminal-bg: #0f1923;
+  --terminal-text: #cdd6f4;
+  --terminal-muted: #6a7a90;
+  --terminal-accent: #00b4d8;
+  --footer-text: #44445a;
+}
+
+/* ── Light Theme ────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg: #f8fafb;
+  --text: #3a4a54;
+  --text-muted: #7a8a94;
+  --heading: #1a2a34;
+  --accent: #0090b0;
+  --accent-dim: rgba(0, 144, 176, 0.10);
+  --link: #007a96;
+  --link-hover: #00b4d8;
+  --border: rgba(0, 0, 0, 0.08);
+  --code-bg: rgba(0, 0, 0, 0.04);
+  --code-text: #006a84;
+  --install-bg: rgba(0, 144, 176, 0.06);
+  --install-border: rgba(0, 144, 176, 0.20);
+  --terminal-bg: #eaf3f6;
+  --terminal-text: #3a4a54;
+  --terminal-muted: #7a8a94;
+  --terminal-accent: #0090b0;
+  --footer-text: #8a9aa4;
+}
+
+/* ── Base ───────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  transition: background var(--transition), color var(--transition);
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+
+a:hover {
+  color: var(--link-hover);
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: var(--code-bg);
+  color: var(--code-text);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--accent-dim);
+}
+
+/* ── Page Container ─────────────────────────────────────────── */
+.page {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── Hero ───────────────────────────────────────────────────── */
+.hero {
+  padding-top: 120px;
+  margin-bottom: 80px;
+  text-align: center;
+}
+
+.logo {
+  color: var(--accent);
+  margin-bottom: 40px;
+}
+
+.logo img {
+  width: 72px;
+  height: 72px;
+}
+
+.hero-tagline {
+  font-size: 1.25rem;
+  color: var(--text-muted);
+  line-height: 1.7;
+  margin-bottom: 24px;
+  font-weight: 400;
+}
+
+.hero-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin-bottom: 40px;
+  font-size: 0.9rem;
+}
+
+.hero-links a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.hero-links a:hover {
+  color: var(--text);
+}
+
+.theme-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all var(--transition);
+  line-height: 1;
+}
+
+.theme-btn:hover {
+  color: var(--accent);
+}
+
+/* ── Install Block ──────────────────────────────────────────── */
+.install-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--install-bg);
+  border: 1px solid var(--install-border);
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin-bottom: 32px;
+}
+
+.install-code {
+  font-size: 0.85rem;
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.copy-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 14px;
+  border-radius: 6px;
+  transition: all var(--transition);
+  flex-shrink: 0;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.copy-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+/* ── Screenshot ───────────────────────────────────────────────── */
+.screenshot {
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 0;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.screenshot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ── Content ────────────────────────────────────────────────── */
+.content {
+  padding-bottom: 80px;
+}
+
+.content h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--heading);
+  margin-top: 48px;
+  margin-bottom: 12px;
+  letter-spacing: -0.01em;
+}
+
+.content h2:first-child {
+  margin-top: 64px;
+}
+
+.content p {
+  font-size: 0.95rem;
+  color: var(--text);
+  line-height: 1.75;
+  margin-bottom: 12px;
+}
+
+.code-block {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.code-block code {
+  font-size: 0.8rem;
+  background: none;
+  padding: 0;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.config-block pre {
+  margin: 0;
+}
+
+.config-block code {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  white-space: pre;
+  color: var(--code-text);
+}
+
+/* ── Shortcuts Table ─────────────────────────────────────────── */
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  margin-bottom: 16px;
+  font-size: 0.88rem;
+}
+
+.shortcuts-table th,
+.shortcuts-table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcuts-table th {
+  font-weight: 600;
+  color: var(--heading);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.shortcuts-table td:first-child {
+  color: var(--accent);
+  font-weight: 500;
+  white-space: nowrap;
+  width: 100px;
+}
+
+.shortcuts-table td:last-child {
+  color: var(--text);
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 32px 0;
+  margin-top: 40px;
+}
+
+.footer p {
+  font-size: 0.8rem;
+  color: var(--footer-text);
+}
+
+.footer a {
+  color: var(--footer-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.footer a:hover {
+  color: var(--text);
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .page {
+    padding: 0 20px;
+  }
+
+  .hero {
+    padding-top: 48px;
+  }
+
+  .install-block {
+    padding: 10px 12px;
+  }
+
+  .install-code {
+    font-size: 0.72rem;
+  }
+
+  .shortcuts-table td:first-child {
+    width: auto;
+  }
+
+  .config-block code {
+    font-size: 0.7rem;
+  }
+}
