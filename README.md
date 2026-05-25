@@ -14,28 +14,35 @@ No config file required for agents you have already installed and logged into.
 
 ## Install
 
-### macOS and Linux (recommended)
+### One-line install (recommended)
 
 ```bash
 curl -fsSL https://intentloop.dev/install.sh | sh
 ```
 
-This is the easiest way on macOS (uses the official signed `.pkg`) and also works on Linux (builds from source).
+- Installs to `~/.local/bin/il` (no sudo, no password prompt)
+- Downloads a prebuilt binary when available (fast, no compilation)
+- Falls back to building from source only when necessary (with a clear warning)
 
-### Advanced / specific version
+### Advanced options
+
+**Specific version**
 
 ```bash
-# Install a particular version
-INTENTLOOP_VERSION=0.5.0 sh -s -- < <(curl -fsSL https://intentloop.dev/install.sh)
+INTENTLOOP_VERSION=0.5.0 curl -fsSL https://intentloop.dev/install.sh | sh
 ```
 
-Or download the `.pkg` manually from [GitHub Releases](https://github.com/EeroEternal/IntentLoop/releases) and run:
+**System-wide installation** (`/usr/local/bin`, requires sudo on macOS)
+
+```bash
+curl -fsSL https://intentloop.dev/install.sh | sh -s -- --system
+```
+
+Or manually download the `.pkg` from [GitHub Releases](https://github.com/EeroEternal/IntentLoop/releases) and run:
 
 ```bash
 sudo installer -pkg IntentLoop-*.pkg -target /
 ```
-
-The package installs `il` to `/usr/local/bin/il`.
 
 ## The only command you will use
 
