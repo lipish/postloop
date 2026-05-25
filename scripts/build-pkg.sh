@@ -1,6 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
+#
+# Reliable macOS .pkg builder for IntentLoop
+#
+# This script produces a simple flat package using only pkgbuild.
+# Flat packages are significantly more reliable on modern macOS (Ventura/Sonoma/Sequoia+)
+# than distribution packages built with productbuild + Distribution.xml.
+#
+# The resulting .pkg can be installed with:
+#   sudo installer -pkg IntentLoop-*.pkg -target /
+# or by double-clicking in Finder.
+#
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
@@ -13,7 +25,7 @@ PKG_BUILD_DIR="$PROJECT_DIR/target/pkg-build"
 PKG_OUTPUT_DIR="$PROJECT_DIR/target/pkg"
 PKG_NAME="IntentLoop-${VERSION}.pkg"
 
-echo "==> Building IntentLoop v${VERSION} installer package"
+echo "==> Building IntentLoop v${VERSION} installer package (flat package)"
 
 # -------------------------------------------------------
 # 1. Build release binaries for both architectures
@@ -39,38 +51,22 @@ chmod +x "$PKG_BUILD_DIR/root/il"
 echo "    il: $(lipo -archs "$PKG_BUILD_DIR/root/il")"
 
 # -------------------------------------------------------
-# 3. Build component package with pkgbuild
+# 3. Build a simple flat package directly with pkgbuild
+#    (This is the reliable modern way — no productbuild / Distribution.xml)
 # -------------------------------------------------------
-echo "==> Building component package..."
-mkdir -p "$PKG_BUILD_DIR/components"
+echo "==> Building flat package..."
+mkdir -p "$PKG_OUTPUT_DIR"
 
 pkgbuild \
     --root "$PKG_BUILD_DIR/root" \
     --install-location "$INSTALL_LOCATION" \
     --identifier "$IDENTIFIER" \
     --version "$VERSION" \
-    "$PKG_BUILD_DIR/components/intentloop-component.pkg"
-
-# -------------------------------------------------------
-# 4. Build distribution package with productbuild
-# -------------------------------------------------------
-echo "==> Building distribution package..."
-mkdir -p "$PKG_OUTPUT_DIR"
-
-# Substitute VERSION into Distribution template
-RESOURCES_DIR="$PKG_BUILD_DIR/resources"
-mkdir -p "$RESOURCES_DIR"
-sed "s/@VERSION@/$VERSION/g" "$PROJECT_DIR/pkg/Distribution.in" > "$RESOURCES_DIR/Distribution.xml"
-cp "$PROJECT_DIR/pkg/Welcome.html" "$RESOURCES_DIR/Welcome.html"
-
-productbuild \
-    --distribution "$RESOURCES_DIR/Distribution.xml" \
-    --resources "$RESOURCES_DIR" \
-    --package-path "$PKG_BUILD_DIR/components" \
+    --ownership recommended \
     "$PKG_OUTPUT_DIR/$PKG_NAME"
 
 # -------------------------------------------------------
-# 5. Generate SHA256 checksum
+# 4. Generate SHA256 checksum
 # -------------------------------------------------------
 echo "==> Generating checksum..."
 shasum -a 256 "$PKG_OUTPUT_DIR/$PKG_NAME" | awk '{print $1}' > "$PKG_OUTPUT_DIR/${PKG_NAME}.sha256"
@@ -86,3 +82,5 @@ echo ""
 echo "    Manual install:"
 echo "      sudo installer -pkg $PKG_OUTPUT_DIR/$PKG_NAME -target /"
 echo "      # or double-click the .pkg in Finder"
+echo ""
+echo "    Note: This is a flat package (more reliable on modern macOS than distribution packages)."

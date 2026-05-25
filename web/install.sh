@@ -1,51 +1,135 @@
 #!/usr/bin/env bash
 #
 # IntentLoop one-line installer
-# Usage (recommended):
+#
+# Recommended usage (no sudo, no compilation in most cases):
 #   curl -fsSL https://intentloop.dev/install.sh | sh
 #
-# Advanced:
-#   INTENTLOOP_VERSION=0.5.0 sh -s --   # install a specific version
+# For system-wide installation (requires sudo on macOS):
+#   curl -fsSL https://intentloop.dev/install.sh | sh -s -- --system
 #
-# This script prefers the official macOS .pkg when possible.
-# On other platforms it falls back to building from source (requires Rust).
+# Pin a specific version:
+#   INTENTLOOP_VERSION=0.5.0 curl -fsSL https://intentloop.dev/install.sh | sh
 
 set -euo pipefail
 
 REPO="EeroEternal/IntentLoop"
-GREEN="\033[32m"
-YELLOW="\033[33m"
-RED="\033[31m"
-RESET="\033[0m"
 
-info()  { printf "${GREEN}==> %s${RESET}\n" "$*"; }
-warn()  { printf "${YELLOW}==> %s${RESET}\n" "$*"; }
-error() { printf "${RED}error: %s${RESET}\n" "$*" >&2; }
+# Only use colors when stdout is a terminal.
+if [ -t 1 ]; then
+    GREEN=$'\033[32m'
+    YELLOW=$'\033[33m'
+    RED=$'\033[31m'
+    RESET=$'\033[0m'
+else
+    GREEN=""
+    YELLOW=""
+    RED=""
+    RESET=""
+fi
 
-# Detect platform
+info()  { printf "%s==> %s%s\n" "$GREEN" "$*" "$RESET"; }
+warn()  { printf "%s==> %s%s\n" "$YELLOW" "$*" "$RESET"; }
+error() { printf "%serror: %s%s\n" "$RED" "$*" "$RESET" >&2; }
+
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 
-# Allow overriding version
+USE_SYSTEM=false
+for arg in "$@"; do
+    [[ "$arg" == "--system" ]] && USE_SYSTEM=true
+done
+
+if $USE_SYSTEM; then
+    INSTALL_DIR="/usr/local/bin"
+    INSTALL_MODE="system"
+else
+    INSTALL_DIR="${HOME}/.local/bin"
+    INSTALL_MODE="user"
+fi
+
 VERSION="${INTENTLOOP_VERSION:-}"
 
 fetch_latest_version() {
-    local api_url="https://api.github.com/repos/${REPO}/releases/latest"
     local json
-    json=$(curl -fsSL "$api_url" 2>/dev/null || true)
-
-    if [[ -z "$json" ]]; then
-        error "Failed to reach GitHub API. Check your network or try again later."
-        exit 1
-    fi
-
-    # Extract tag_name, strip leading 'v'
+    json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)
     VERSION=$(echo "$json" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/^v//')
+    [[ -z "$VERSION" ]] && { error "Could not determine latest version from GitHub."; exit 1; }
+}
 
-    if [[ -z "$VERSION" ]]; then
-        error "Could not determine latest version from GitHub."
+download_and_install_prebuilt() {
+    local ver="$1"
+    local dest_dir="$2"
+
+    local filename
+    case "$OS" in
+        Darwin)
+            filename="il-${ver}-macos-universal.tar.gz"
+            ;;
+        Linux)
+            case "$ARCH" in
+                x86_64|amd64) filename="il-${ver}-linux-x86_64.tar.gz" ;;
+                aarch64|arm64)  filename="il-${ver}-linux-aarch64.tar.gz" ;;
+                *) error "Unsupported architecture on Linux: $ARCH"; return 1 ;;
+            esac
+            ;;
+        *)
+            error "Unsupported operating system: $OS"
+            return 1
+            ;;
+    esac
+
+    local url="https://github.com/${REPO}/releases/download/v${ver}/${filename}"
+    local tmp
+    tmp=$(mktemp -d)
+
+    info "Downloading prebuilt binary (${filename})..."
+    if ! curl -fL --progress-bar -o "${tmp}/${filename}" "$url"; then
+        warn "Prebuilt binary not available for this platform/version yet."
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    tar -xzf "${tmp}/${filename}" -C "$tmp"
+    mkdir -p "$dest_dir"
+    cp "${tmp}/il" "$dest_dir/il"
+    chmod +x "$dest_dir/il"
+    rm -rf "$tmp"
+
+    info "${GREEN}IntentLoop v${ver} installed successfully to ${dest_dir}${RESET}"
+    echo "  Binary : ${dest_dir}/il"
+    echo
+    return 0
+}
+
+build_from_source() {
+    local dest_dir="$1"
+    local mode="$2"
+
+    if ! command -v cargo >/dev/null 2>&1; then
+        error "Rust/Cargo is required for fallback build but was not found."
+        echo "Please install Rust from https://rustup.rs and try again."
         exit 1
     fi
+
+    warn "No prebuilt binary found for your platform. Falling back to building from source."
+    warn "This may take 1-2 minutes on the first run."
+
+    local tmp
+    tmp=$(mktemp -d)
+
+    git clone --depth 1 "https://github.com/${REPO}.git" "$tmp/IntentLoop"
+    (
+        cd "$tmp/IntentLoop"
+        cargo build --release
+        mkdir -p "$dest_dir"
+        cp target/release/il "$dest_dir/il"
+        chmod +x "$dest_dir/il"
+    )
+    rm -rf "$tmp"
+
+    info "${GREEN}IntentLoop installed successfully (built from source).${RESET}"
+    echo "  Binary : ${dest_dir}/il"
 }
 
 install_macos_pkg() {
@@ -53,92 +137,27 @@ install_macos_pkg() {
     local pkg_url="https://github.com/${REPO}/releases/download/v${VERSION}/${pkg_name}"
     local sha_url="${pkg_url}.sha256"
 
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    trap 'rm -rf "$tmpdir"' EXIT
+    local tmp
+    tmp=$(mktemp -d)
 
-    info "Downloading IntentLoop v${VERSION} for macOS..."
-    if ! curl -fL --progress-bar -o "${tmpdir}/${pkg_name}" "$pkg_url"; then
-        error "Download failed: ${pkg_url}"
+    info "Downloading official macOS package..."
+    curl -fL --progress-bar -o "${tmp}/${pkg_name}" "$pkg_url" || {
+        error "Failed to download package."
         exit 1
-    fi
-
-    info "Downloading checksum..."
-    if ! curl -fsSL -o "${tmpdir}/${pkg_name}.sha256" "$sha_url"; then
-        error "Failed to download checksum file."
-        exit 1
-    fi
+    }
 
     info "Verifying checksum..."
-    (
-        cd "$tmpdir"
-        if ! shasum -a 256 -c "${pkg_name}.sha256" >/dev/null 2>&1; then
-            error "Checksum verification FAILED!"
-            cat "${pkg_name}.sha256"
-            shasum -a 256 "${pkg_name}"
-            exit 1
-        fi
-    )
-    info "Checksum verified."
-
-    echo
-    info "Installing to /usr/local/bin (sudo may ask for your password)..."
-    sudo installer -pkg "${tmpdir}/${pkg_name}" -target /
-
-    echo
-    info "${GREEN}IntentLoop v${VERSION} installed successfully!${RESET}"
-    echo "  Location : /usr/local/bin/il"
-    echo "  Version  : $(/usr/local/bin/il --version 2>/dev/null || echo 'unknown')"
-    echo
-    echo "Try it now:"
-    echo "  il --version"
-    echo "  il run echo 'hello from IntentLoop'"
-    echo
-}
-
-install_from_source() {
-    warn "No prebuilt package available for your platform."
-    info "Falling back to building from source (requires Rust + Cargo)."
-
-    if ! command -v cargo >/dev/null 2>&1; then
-        error "Rust/Cargo not found."
-        echo "Please install Rust first: https://rustup.rs"
-        echo "Then run:"
-        echo "  git clone https://github.com/${REPO}.git"
-        echo "  cd IntentLoop && cargo build --release"
-        echo "  # then copy target/release/il into your \$PATH"
+    curl -fsSL -o "${tmp}/${pkg_name}.sha256" "$sha_url"
+    (cd "$tmp" && shasum -a 256 -c "${pkg_name}.sha256" >/dev/null) || {
+        error "Checksum verification failed!"
         exit 1
-    fi
+    }
 
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    trap 'rm -rf "$tmpdir"' EXIT
+    info "Installing to /usr/local/bin (sudo password may be required)..."
+    sudo installer -pkg "${tmp}/${pkg_name}" -target /
 
-    info "Cloning repository..."
-    git clone --depth 1 "https://github.com/${REPO}.git" "$tmpdir/IntentLoop"
-
-    cd "$tmpdir/IntentLoop"
-    info "Building in release mode (this may take a minute)..."
-    cargo build --release
-
-    local install_dir="${HOME}/.local/bin"
-    mkdir -p "$install_dir"
-
-    info "Installing binary to ${install_dir}/il"
-    cp target/release/il "$install_dir/il"
-    chmod +x "$install_dir/il"
-
-    echo
-    info "Build complete!"
-    echo "  Binary installed to: ${install_dir}/il"
-    echo
-    echo "Make sure ${install_dir} is in your PATH."
-    echo "You may need to run:"
-    echo "  export PATH=\"${install_dir}:\$PATH\""
-    echo "  # or add it to your shell profile (.zshrc, .bashrc, etc.)"
-    echo
-    echo "Then verify with:"
-    echo "  il --version"
+    rm -rf "$tmp"
+    info "${GREEN}IntentLoop v${VERSION} installed successfully to /usr/local/bin.${RESET}"
 }
 
 main() {
@@ -148,24 +167,28 @@ main() {
     if [[ -z "$VERSION" ]]; then
         info "Fetching latest release information..."
         fetch_latest_version
-    else
-        info "Using requested version: v${VERSION}"
     fi
 
-    case "$OS" in
-        Darwin)
-            install_macos_pkg
-            ;;
-        Linux)
-            install_from_source
-            ;;
-        *)
-            error "Unsupported operating system: $OS"
-            echo "Please install from source following the instructions at:"
-            echo "  https://github.com/${REPO}#install"
-            exit 1
-            ;;
-    esac
+    if $USE_SYSTEM; then
+        info "System-wide installation requested"
+        case "$OS" in
+            Darwin) install_macos_pkg ;;
+            Linux)  build_from_source "$INSTALL_DIR" "system" ;;
+            *)      error "System install not supported on $OS"; exit 1 ;;
+        esac
+    else
+        info "Installing to ${INSTALL_DIR} (no sudo)"
+        if ! download_and_install_prebuilt "$VERSION" "$INSTALL_DIR"; then
+            build_from_source "$INSTALL_DIR" "user"
+        fi
+    fi
+
+    echo
+    echo "Run the following if the binary is not in your PATH:"
+    echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+    echo
+    echo "Then verify installation with:"
+    echo "  il --version"
 }
 
 main "$@"

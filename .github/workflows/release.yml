@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build-pkg:
-    name: Build macOS pkg installer
+  build-macos:
+    name: Build macOS binaries + .pkg
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -24,59 +24,99 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Read version from tag
+      - name: Read version
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build aarch64 binary
-        run: cargo build --release --target aarch64-apple-darwin
-
-      - name: Build x86_64 binary
-        run: cargo build --release --target x86_64-apple-darwin
-
-      - name: Create universal binary (il)
+      - name: Build universal binary
         run: |
-          mkdir -p target/pkg-root
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+
+          mkdir -p target/release-artifacts
           lipo -create \
             target/aarch64-apple-darwin/release/il \
             target/x86_64-apple-darwin/release/il \
-            -output target/pkg-root/il
-          chmod +x target/pkg-root/il
-          echo "il architectures: $(lipo -archs target/pkg-root/il)"
+            -output target/release-artifacts/il
+          chmod +x target/release-artifacts/il
 
-      - name: Build component package
+      - name: Create macOS universal tarball
         run: |
+          cd target/release-artifacts
+          tar -czf "il-${{ steps.version.outputs.version }}-macos-universal.tar.gz" il
+          shasum -a 256 "il-${{ steps.version.outputs.version }}-macos-universal.tar.gz" > "il-${{ steps.version.outputs.version }}-macos-universal.tar.gz.sha256"
+
+      - name: Build macOS installer package (flat package)
+        run: |
+          mkdir -p target/pkg-root
+          cp target/release-artifacts/il target/pkg-root/il
+
           pkgbuild \
             --root target/pkg-root \
             --install-location /usr/local/bin \
             --identifier com.intentloop.pkg \
             --version "${{ steps.version.outputs.version }}" \
-            target/intentloop-component.pkg
-
-      - name: Build distribution package
-        run: |
-          mkdir -p target/pkg-resources
-          sed "s/@VERSION@/${{ steps.version.outputs.version }}/g" \
-            pkg/Distribution.in > target/pkg-resources/Distribution.xml
-          cp pkg/Welcome.html target/pkg-resources/Welcome.html
-
-          productbuild \
-            --distribution target/pkg-resources/Distribution.xml \
-            --resources target/pkg-resources \
-            --package-path target/intentloop-component.pkg \
+            --ownership recommended \
             "target/IntentLoop-${{ steps.version.outputs.version }}.pkg"
 
-      - name: Generate checksum
-        run: |
           cd target
-          shasum -a 256 "IntentLoop-${{ steps.version.outputs.version }}.pkg" \
-            > "IntentLoop-${{ steps.version.outputs.version }}.pkg.sha256"
+          shasum -a 256 "IntentLoop-${{ steps.version.outputs.version }}.pkg" > "IntentLoop-${{ steps.version.outputs.version }}.pkg.sha256"
 
-      - name: Create GitHub Release
+      - name: Upload macOS artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            target/release-artifacts/il-${{ steps.version.outputs.version }}-macos-universal.tar.gz
+            target/release-artifacts/il-${{ steps.version.outputs.version }}-macos-universal.tar.gz.sha256
             target/IntentLoop-${{ steps.version.outputs.version }}.pkg
             target/IntentLoop-${{ steps.version.outputs.version }}.pkg.sha256
           generate_release_notes: true
           name: "IntentLoop v${{ steps.version.outputs.version }}"
+
+  build-linux:
+    name: Build Linux binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Read version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Linux binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+            ARCH="x86_64"
+          else
+            ARCH="aarch64"
+          fi
+          tar -czf "il-${{ steps.version.outputs.version }}-linux-${ARCH}.tar.gz" il
+          shasum -a 256 "il-${{ steps.version.outputs.version }}-linux-${ARCH}.tar.gz" > "il-${{ steps.version.outputs.version }}-linux-${ARCH}.tar.gz.sha256"
+          mv *.tar.gz ../../..
+          mv *.sha256 ../../..
+
+      - name: Upload Linux artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            il-${{ steps.version.outputs.version }}-linux-*.tar.gz
+            il-${{ steps.version.outputs.version }}-linux-*.tar.gz.sha256
+          # Note: softprops will append to the existing release created by the macOS job
+
+  # Optional: could add a job that updates the website or does other post-release tasks later
