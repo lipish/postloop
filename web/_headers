@@ -1,0 +1,11 @@
+# Cloudflare Pages custom headers
+# These are applied when deploying via Wrangler or the dashboard.
+
+# Ensure install.sh is always served as plain text (important for `curl | sh`)
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: no-cache
+
+# Optional: also make the root index behave nicely
+/
+  Cache-Control: public, max-age=3600

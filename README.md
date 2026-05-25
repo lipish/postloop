@@ -14,32 +14,28 @@ No config file required for agents you have already installed and logged into.
 
 ## Install
 
-### macOS (recommended)
+### macOS and Linux (recommended)
 
-Download the `.pkg` from [GitHub Releases](https://github.com/EeroEternal/IntentLoop/releases) and install:
+```bash
+curl -fsSL https://intentloop.dev/install.sh | sh
+```
+
+This is the easiest way on macOS (uses the official signed `.pkg`) and also works on Linux (builds from source).
+
+### Advanced / specific version
+
+```bash
+# Install a particular version
+INTENTLOOP_VERSION=0.5.0 sh -s -- < <(curl -fsSL https://intentloop.dev/install.sh)
+```
+
+Or download the `.pkg` manually from [GitHub Releases](https://github.com/EeroEternal/IntentLoop/releases) and run:
 
 ```bash
 sudo installer -pkg IntentLoop-*.pkg -target /
 ```
 
 The package installs `il` to `/usr/local/bin/il`.
-
-### Linux / build from source
-
-Requires Rust:
-
-```bash
-cargo install --path .
-```
-
-Or:
-
-```bash
-git clone https://github.com/EeroEternal/IntentLoop.git
-cd IntentLoop
-cargo build --release
-# copy target/release/il to a directory in $PATH (e.g. ~/.local/bin)
-```
 
 ## The only command you will use
 
@@ -136,3 +132,48 @@ See `il copilot --help` for the full set of options.
 ## License
 
 MIT
+
+---
+
+## For Maintainers: Deploying intentloop.dev
+
+The website lives in the `web/` directory and is deployed to Cloudflare Pages.
+
+We use **Wrangler** for configuration (so everything is in the repo).
+
+### One-time setup
+
+```bash
+# Install Wrangler (if you haven't already)
+npm install -g wrangler
+
+# Login to Cloudflare
+wrangler login
+```
+
+### Deploy the site
+
+```bash
+# From the root of the repo
+wrangler pages deploy . --project-name=intentloop
+```
+
+This uses `wrangler.toml` (which points to `web/` as the output directory).
+
+After deployment:
+- `https://intentloop.dev/` → `web/index.html`
+- `https://intentloop.dev/install.sh` → `web/install.sh` (the one-line installer)
+
+### Custom headers
+
+We also have `web/_headers` which ensures `install.sh` is served with the correct `Content-Type: text/plain`.
+
+### Alternative (explicit directory)
+
+You can also deploy just the web folder directly:
+
+```bash
+wrangler pages deploy web --project-name=intentloop
+```
+
+Both commands are equivalent thanks to the `wrangler.toml` configuration.

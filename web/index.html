@@ -41,10 +41,12 @@
       </div>
 
       <div class="install-block">
-        <code class="install-code">sudo installer -pkg IntentLoop-*.pkg -target /</code>
-        <button class="copy-btn" data-copy="sudo installer -pkg IntentLoop-*.pkg -target /">Copy</button>
+        <code class="install-code">curl -fsSL https://intentloop.dev/install.sh | sh</code>
+        <button class="copy-btn" data-copy="curl -fsSL https://intentloop.dev/install.sh | sh">Copy</button>
       </div>
-      <p style="text-align:center; margin:-12px 0 24px; font-size:0.75rem; color:#6a7a90;">Download <code>IntentLoop-*.pkg</code> from <a href="https://github.com/EeroEternal/IntentLoop/releases" target="_blank" style="color:#7aa2f7;">GitHub Releases</a> first (recommended for macOS).</p>
+      <p style="text-align:center; margin:-12px 0 24px; font-size:0.75rem; color:#6a7a90;">
+        One-command install for macOS (recommended). Works on Linux too.
+      </p>
 
       <!-- Terminal mockup -->
       <div class="screenshot">
@@ -212,7 +214,7 @@ INTENTLOOP_HOME=/path/to/custom/store</code></pre>
 
       <h2>Single binary</h2>
       <p>
-        Written in Rust. Compiles to a single, fast binary. macOS: install the official <code>.pkg</code> from GitHub Releases (recommended). Linux/other: <code>cargo install --path .</code> or build from source.
+        Written in Rust. Compiles to a single, fast binary. macOS and Linux: <code>curl -fsSL https://intentloop.dev/install.sh | sh</code> (recommended).
         No runtime dependencies, no containers, no cloud services required.
       </p>
 

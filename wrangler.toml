@@ -1,0 +1,11 @@
+name = "intentloop"
+compatibility_date = "2025-05-01"
+
+# Tell Cloudflare Pages that the root of the website is the `web/` directory.
+# This makes:
+#   https://intentloop.dev/          → web/index.html
+#   https://intentloop.dev/install.sh → web/install.sh
+#
+# Deploy with:
+#   wrangler pages deploy . --project-name=intentloop
+pages_build_output_dir = "web"

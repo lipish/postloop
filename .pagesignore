@@ -1,0 +1,30 @@
+# Cloudflare Pages ignore file
+# Used when running: wrangler pages deploy .
+
+# Rust build artifacts (can be 100MB+ and contain huge binaries)
+target/
+
+# Lockfile (not needed for static site)
+Cargo.lock
+
+# Environment files
+.env
+.env.*
+.env.local
+
+# Logs and temporary files
+*.log
+*.tmp
+wrangler-*.log
+
+# Wrangler local state
+.wrangler/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+
+# OS generated
+.DS_Store
+Thumbs.db
