@@ -8,14 +8,16 @@
 # For system-wide installation (requires sudo on macOS):
 #   curl -fsSL https://intentloop.dev/install.sh | sh -s -- --system
 #
-# Pin a specific version:
+# Pin a specific version (recommended if network is slow/unstable):
 #   INTENTLOOP_VERSION=0.5.0 curl -fsSL https://intentloop.dev/install.sh | sh
+#
+# Deployed: 2026-05-27 - v0.6.2 installer improvements (prebuilt binary preference, no sudo by default, better fallback messages)
 
 set -euo pipefail
 
 REPO="EeroEternal/IntentLoop"
 
-# Only use colors when stdout is a terminal.
+# Colors only when stdout is a TTY
 if [ -t 1 ]; then
     GREEN=$'\033[32m'
     YELLOW=$'\033[33m'
@@ -31,6 +33,8 @@ fi
 info()  { printf "%s==> %s%s\n" "$GREEN" "$*" "$RESET"; }
 warn()  { printf "%s==> %s%s\n" "$YELLOW" "$*" "$RESET"; }
 error() { printf "%serror: %s%s\n" "$RED" "$*" "$RESET" >&2; }
+
+CURL_OPTS="--connect-timeout 10 --max-time 30 -fsSL"
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -52,9 +56,22 @@ VERSION="${INTENTLOOP_VERSION:-}"
 
 fetch_latest_version() {
     local json
-    json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)
+    if ! json=$(curl $CURL_OPTS "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null); then
+        error "Failed to reach GitHub API (network or proxy issue)."
+        echo
+        echo "Suggestion: specify a version manually:"
+        echo "  INTENTLOOP_VERSION=0.5.0 curl -fsSL https://intentloop.dev/install.sh | sh"
+        echo
+        exit 1
+    fi
+
     VERSION=$(echo "$json" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/^v//')
-    [[ -z "$VERSION" ]] && { error "Could not determine latest version from GitHub."; exit 1; }
+
+    if [[ -z "$VERSION" ]]; then
+        error "Could not parse latest version from GitHub."
+        echo "Please specify INTENTLOOP_VERSION manually."
+        exit 1
+    fi
 }
 
 download_and_install_prebuilt() {
@@ -84,13 +101,17 @@ download_and_install_prebuilt() {
     tmp=$(mktemp -d)
 
     info "Downloading prebuilt binary (${filename})..."
-    if ! curl -fL --progress-bar -o "${tmp}/${filename}" "$url"; then
-        warn "Prebuilt binary not available for this platform/version yet."
+
+    if ! curl $CURL_OPTS --progress-bar -o "${tmp}/${filename}" "$url" >/dev/null 2>&1; then
         rm -rf "$tmp"
         return 1
     fi
 
-    tar -xzf "${tmp}/${filename}" -C "$tmp"
+    tar -xzf "${tmp}/${filename}" -C "$tmp" 2>/dev/null || {
+        rm -rf "$tmp"
+        return 1
+    }
+
     mkdir -p "$dest_dir"
     cp "${tmp}/il" "$dest_dir/il"
     chmod +x "$dest_dir/il"
@@ -112,8 +133,10 @@ build_from_source() {
         exit 1
     fi
 
-    warn "No prebuilt binary found for your platform. Falling back to building from source."
-    warn "This may take 1-2 minutes on the first run."
+    warn "Could not download prebuilt binary for v${VERSION}."
+    warn "Falling back to building from source."
+    echo "This may take several minutes on the first run (especially while updating Rust crates)."
+    echo "Future releases will include prebuilt binaries, so you won't need to compile."
 
     local tmp
     tmp=$(mktemp -d)
@@ -141,19 +164,19 @@ install_macos_pkg() {
     tmp=$(mktemp -d)
 
     info "Downloading official macOS package..."
-    curl -fL --progress-bar -o "${tmp}/${pkg_name}" "$pkg_url" || {
+    if ! curl $CURL_OPTS --progress-bar -o "${tmp}/${pkg_name}" "$pkg_url" >/dev/null 2>&1; then
         error "Failed to download package."
         exit 1
-    }
+    fi
 
     info "Verifying checksum..."
-    curl -fsSL -o "${tmp}/${pkg_name}.sha256" "$sha_url"
+    curl $CURL_OPTS -o "${tmp}/${pkg_name}.sha256" "$sha_url" >/dev/null 2>&1
     (cd "$tmp" && shasum -a 256 -c "${pkg_name}.sha256" >/dev/null) || {
         error "Checksum verification failed!"
         exit 1
     }
 
-    info "Installing to /usr/local/bin (sudo password may be required)..."
+    info "Installing to /usr/local/bin (you may be asked for your password)..."
     sudo installer -pkg "${tmp}/${pkg_name}" -target /
 
     rm -rf "$tmp"
@@ -167,6 +190,8 @@ main() {
     if [[ -z "$VERSION" ]]; then
         info "Fetching latest release information..."
         fetch_latest_version
+    else
+        info "Using requested version: v${VERSION}"
     fi
 
     if $USE_SYSTEM; then
@@ -184,10 +209,10 @@ main() {
     fi
 
     echo
-    echo "Run the following if the binary is not in your PATH:"
+    echo "If 'il' is not found, add this line to your shell profile:"
     echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
     echo
-    echo "Then verify installation with:"
+    echo "Then verify with:"
     echo "  il --version"
 }
 
