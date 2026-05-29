@@ -135,11 +135,11 @@ pub fn run_session(
     }
 
     println!("✓ Session saved: {}", session_id);
-    println!(
-        "Raw stdout stream: memmap_fs:sessions/{}/stdout",
-        session_id
-    );
-    println!("Raw stdin stream: memmap_fs:sessions/{}/stdin", session_id);
+    println!();
+    println!("Quick commands:");
+    println!("  il last   # 查看最近会话（推荐）");
+    println!("  il show   # 同上，默认隐式使用最新会话");
+    println!("  il list   # 列出历史会话");
 
     if !execution.success {
         return Err(anyhow!(
@@ -169,6 +169,30 @@ fn append_jsonl_stream(
     registry.append_stream(session_id, stream, jsonl.as_bytes())
 }
 
+/// 解析会话选择器：支持显式 ID、--last、或隐式默认最新会话。
+/// 规则：
+/// - 若 use_last 且 session_id 同时提供 → 报错（互斥）
+/// - 若 use_last 或 session_id 为 None → 返回最近一次会话 ID
+/// - 否则返回给定的 session_id
+fn resolve_session_id(
+    registry: &Registry,
+    session_id: Option<&str>,
+    use_last: bool,
+) -> Result<String, anyhow::Error> {
+    if use_last && session_id.is_some() {
+        return Err(anyhow!("--last 与会话 ID 互斥，请只指定其中之一"));
+    }
+
+    if use_last || session_id.is_none() {
+        return registry
+            .get_latest_session()?
+            .map(|s| s.id)
+            .ok_or_else(|| anyhow!("未找到任何会话。请先运行一次会话。"));
+    }
+
+    Ok(session_id.unwrap().to_string())
+}
+
 pub fn cmd_run(agent: String, extra_args: Vec<String>) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
 
@@ -188,11 +212,13 @@ pub fn cmd_run(agent: String, extra_args: Vec<String>) -> Result<(), anyhow::Err
     run_session(repo_root, final_cmd, true, &HashMap::new())
 }
 
-pub fn cmd_show(session_id: &str) -> Result<(), anyhow::Error> {
+pub fn cmd_show(session_id: Option<&str>, use_last: bool) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;
-    let Some(session) = registry.get_session(session_id)? else {
-        return Err(anyhow!("Session not found: {}", session_id));
+    let resolved_id = resolve_session_id(&registry, session_id, use_last)?;
+
+    let Some(session) = registry.get_session(&resolved_id)? else {
+        return Err(anyhow!("Session not found: {}", resolved_id));
     };
 
     println!("Session: {}", session.id);
@@ -217,17 +243,17 @@ pub fn cmd_show(session_id: &str) -> Result<(), anyhow::Error> {
     );
     println!("Raw stdin stream: memmap_fs:sessions/{}/stdin", session.id);
 
-    print_stream_ref_if_present(&registry, session_id, "conversation", "Conversation")?;
-    print_stream_ref_if_present(&registry, session_id, "events", "Structured events")?;
-    print_stream_ref_if_present(&registry, session_id, "normalized", "VT100 normalized")?;
-    print_stream_ref_if_present(&registry, session_id, "thoughts", "Thought events")?;
-    print_stream_ref_if_present(&registry, session_id, "report", "Report")?;
+    print_stream_ref_if_present(&registry, &resolved_id, "conversation", "Conversation")?;
+    print_stream_ref_if_present(&registry, &resolved_id, "events", "Structured events")?;
+    print_stream_ref_if_present(&registry, &resolved_id, "normalized", "VT100 normalized")?;
+    print_stream_ref_if_present(&registry, &resolved_id, "thoughts", "Thought events")?;
+    print_stream_ref_if_present(&registry, &resolved_id, "report", "Report")?;
 
-    if let Ok(ring) = registry.read_stream_to_bytes(session_id, "ring") {
+    if let Ok(ring) = registry.read_stream_to_bytes(&resolved_id, "ring") {
         if !ring.is_empty() {
             println!(
                 "Ring buffer: memmap_fs:sessions/{}/ring ({} bytes)",
-                session_id,
+                resolved_id,
                 ring.len()
             );
         }
@@ -256,29 +282,61 @@ fn print_stream_ref_if_present(
     Ok(())
 }
 
-pub fn cmd_list() -> Result<(), anyhow::Error> {
+pub fn cmd_list(limit: usize) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;
-    let sessions = registry.list_sessions()?;
+    let mut sessions = registry.list_sessions()?;
 
     if sessions.is_empty() {
-        println!("No sessions found.");
+        println!("No sessions found. Run `il run <your-agent>` to start recording.");
         return Ok(());
     }
 
-    println!("{:<38} {:<12} {:<28}", "SESSION ID", "STATUS", "STARTED AT");
+    // Newest first
+    sessions.sort_by(|a, b| b.start_at.cmp(&a.start_at));
+
+    let shown = sessions.iter().take(limit);
+
+    println!("Recent sessions (latest first, showing up to {}):", limit);
+    println!("{:<10} {:<10} {:<20} COMMAND", "ID", "STATUS", "STARTED");
     println!("{}", "-".repeat(80));
-    for s in sessions {
-        println!("{:<38} {:<12} {:<28}", s.id, s.status, s.start_at);
+
+    for s in shown {
+        let short_id: String = s.id.chars().take(8).collect();
+        let started = s
+            .start_at
+            .split('T')
+            .next()
+            .unwrap_or(&s.start_at)
+            .to_string()
+            + " "
+            + s.start_at
+                .split('T')
+                .nth(1)
+                .unwrap_or("")
+                .split('.')
+                .next()
+                .unwrap_or("");
+        let cmd = if s.agent_cmd.len() > 45 {
+            format!("{}…", &s.agent_cmd[..42])
+        } else {
+            s.agent_cmd.clone()
+        };
+        println!("{:<10} {:<10} {:<20} {}", short_id, s.status, started, cmd);
     }
+
+    println!();
+    println!("Use `il last` or `il show` to inspect the most recent session.");
     Ok(())
 }
 
-pub fn cmd_attach(session_id: &str) -> Result<(), anyhow::Error> {
+pub fn cmd_attach(session_id: Option<&str>, use_last: bool) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;
-    let Some(session) = registry.get_session(session_id)? else {
-        return Err(anyhow!("Session not found: {}", session_id));
+    let resolved_id = resolve_session_id(&registry, session_id, use_last)?;
+
+    let Some(session) = registry.get_session(&resolved_id)? else {
+        return Err(anyhow!("Session not found: {}", resolved_id));
     };
 
     if session.status == "running" {
@@ -288,17 +346,17 @@ pub fn cmd_attach(session_id: &str) -> Result<(), anyhow::Error> {
     }
 
     let ring = registry
-        .read_stream_to_bytes(session_id, "ring")
+        .read_stream_to_bytes(&resolved_id, "ring")
         .map_err(|_| {
             anyhow!(
                 "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
-                session_id
+                resolved_id
             )
         })?;
     if ring.is_empty() {
         return Err(anyhow!(
             "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
-            session_id
+            resolved_id
         ));
     }
     let preview = String::from_utf8_lossy(&ring);
@@ -348,23 +406,26 @@ pub fn cmd_search(query: &str, limit: usize) -> Result<(), anyhow::Error> {
 }
 
 pub fn cmd_dump(
-    session_id: &str,
-    stream: &str,
+    stream: String,
+    session_id: Option<&str>,
+    use_last: bool,
     output: Option<&Path>,
 ) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;
-    if registry.get_session(session_id)?.is_none() {
-        return Err(anyhow!("Session not found: {}", session_id));
+    let resolved_id = resolve_session_id(&registry, session_id, use_last)?;
+
+    if registry.get_session(&resolved_id)?.is_none() {
+        return Err(anyhow!("Session not found: {}", resolved_id));
     }
 
-    let stream = normalize_dump_stream(stream)?;
+    let stream = normalize_dump_stream(&stream)?;
     let bytes = registry
-        .read_stream_to_bytes(session_id, stream)
+        .read_stream_to_bytes(&resolved_id, stream)
         .map_err(|_| {
             anyhow!(
                 "Stream not found: memmap_fs:sessions/{}/{}",
-                session_id,
+                resolved_id,
                 stream
             )
         })?;
@@ -375,7 +436,7 @@ pub fn cmd_dump(
         println!(
             "Wrote {} bytes from memmap_fs:sessions/{}/{} to {}",
             bytes.len(),
-            session_id,
+            resolved_id,
             stream,
             path.display()
         );

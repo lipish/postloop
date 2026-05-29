@@ -66,15 +66,30 @@ enum Commands {
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
-    /// Show a recorded session
+    /// Show a recorded session (defaults to the most recent if no ID given)
     Show {
-        /// Session ID
-        session_id: String,
+        /// Session ID (optional; defaults to latest session)
+        session_id: Option<String>,
+        /// Explicitly operate on the most recent session
+        #[arg(long, conflicts_with = "session_id")]
+        last: bool,
     },
-    /// List recent sessions
-    List,
-    /// Replay the saved ring buffer tail for a completed session
-    Attach { session_id: String },
+    /// Show the most recent session (shorthand for `il show` or `il show --last`)
+    Last,
+    /// List recent sessions (latest first)
+    List {
+        /// Maximum number of sessions to show (default 10)
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Replay the saved ring buffer tail for a completed session (defaults to latest)
+    Attach {
+        /// Session ID (optional; defaults to latest session)
+        session_id: Option<String>,
+        /// Explicitly operate on the most recent session
+        #[arg(long, conflicts_with = "session_id")]
+        last: bool,
+    },
     /// Search across all session conversations
     Search {
         /// Search query
@@ -83,12 +98,15 @@ enum Commands {
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
     },
-    /// Dump a stored memmap_fs stream for a session
+    /// Dump a stored memmap_fs stream for a session (defaults to latest)
     Dump {
-        /// Session ID
-        session_id: String,
-        /// Stream name: stdout, stdin, stderr, ring, events, normalized, conversation, thoughts, report
+        /// Stream to dump (stdout, stdin, stderr, ring, events, normalized, conversation, thoughts, report)
         stream: String,
+        /// Session ID (optional; defaults to latest session)
+        session_id: Option<String>,
+        /// Explicitly operate on the most recent session
+        #[arg(long, conflicts_with = "session_id")]
+        last: bool,
         /// Write output to a file instead of stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -109,15 +127,17 @@ fn main() {
             wait,
             args,
         } => cmd_copilot(prompt, mode.into(), non_interactive, wait, args),
-        Commands::Show { session_id } => session::cmd_show(&session_id),
-        Commands::List => session::cmd_list(),
-        Commands::Attach { session_id } => session::cmd_attach(&session_id),
+        Commands::Show { session_id, last } => session::cmd_show(session_id.as_deref(), last),
+        Commands::Last => session::cmd_show(None, true),
+        Commands::List { limit } => session::cmd_list(limit),
+        Commands::Attach { session_id, last } => session::cmd_attach(session_id.as_deref(), last),
         Commands::Search { query, limit } => session::cmd_search(&query, limit),
         Commands::Dump {
-            session_id,
             stream,
+            session_id,
+            last,
             output,
-        } => session::cmd_dump(&session_id, &stream, output.as_deref()),
+        } => session::cmd_dump(stream, session_id.as_deref(), last, output.as_deref()),
     };
 
     if let Err(e) = result {

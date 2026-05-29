@@ -152,6 +152,18 @@ impl Registry {
         Ok(self.storage.list_sessions()?)
     }
 
+    /// 获取最近一次会话（按 start_at 倒序）。
+    ///
+    /// 如果没有任何会话，返回 `Ok(None)`。
+    pub fn get_latest_session(&self) -> Result<Option<SessionSummary>, anyhow::Error> {
+        let mut sessions = self.list_sessions()?;
+        if sessions.is_empty() {
+            return Ok(None);
+        }
+        sessions.sort_by(|a, b| b.start_at.cmp(&a.start_at));
+        Ok(sessions.into_iter().next())
+    }
+
     pub fn append_stream(
         &self,
         session_id: &str,
@@ -297,5 +309,52 @@ mod tests {
         assert!(content.contains("\"seq\":7"));
         assert!(content.contains("\"event_type\":\"stdout\""));
         assert!(content.contains("\"content\":\"second\""));
+    }
+
+    #[test]
+    fn get_latest_session_returns_most_recent_by_start_at() {
+        use std::thread;
+        use std::time::Duration;
+
+        let dir = tempdir().unwrap();
+        let storage = Storage::init(dir.path()).unwrap();
+        let registry = Registry { storage };
+
+        // Create first session
+        registry
+            .create_session(
+                "sess-1",
+                "echo one",
+                Path::new("/tmp"),
+                "memmap_fs:sessions/sess-1/stdout",
+            )
+            .unwrap();
+
+        // Ensure a measurable time gap
+        thread::sleep(Duration::from_millis(2));
+
+        // Create second (later) session
+        registry
+            .create_session(
+                "sess-2",
+                "echo two",
+                Path::new("/tmp"),
+                "memmap_fs:sessions/sess-2/stdout",
+            )
+            .unwrap();
+
+        let latest = registry.get_latest_session().unwrap().unwrap();
+        assert_eq!(latest.id, "sess-2");
+        assert_eq!(latest.agent_cmd, "echo two");
+    }
+
+    #[test]
+    fn get_latest_session_returns_none_when_empty() {
+        let dir = tempdir().unwrap();
+        let storage = Storage::init(dir.path()).unwrap();
+        let registry = Registry { storage };
+
+        let latest = registry.get_latest_session().unwrap();
+        assert!(latest.is_none());
     }
 }
