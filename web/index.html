@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IntentLoop · Local Agent Session Recorder</title>
-  <meta name="description" content="Record, replay, and inspect AI coding agent sessions locally. Wraps any agent CLI and captures structured session data.">
-  <meta property="og:title" content="IntentLoop">
-  <meta property="og:description" content="Local agent session recorder. Record, replay, and inspect AI coding sessions.">
+  <title>IntentLoop · The black box for AI coding agents</title>
+  <meta name="description" content="The black box for AI coding agents. Every session fully recorded — locally and privately.">
+  <meta property="og:title" content="IntentLoop · The black box for AI coding agents">
+  <meta property="og:description" content="The black box for AI coding agents. Record every session locally and privately.">
   <meta property="og:url" content="https://intentloop.dev">
   <meta property="og:type" content="website">
   <link rel="icon" href="logo.svg">
@@ -28,8 +28,8 @@
       </div>
 
       <p class="hero-tagline">
-        Local agent session recorder.<br>
-        Record, replay, and inspect AI coding sessions — privately, on your machine.
+        The black box for AI coding agents.<br>
+        Every session, fully recorded — locally and privately.
       </p>
 
       <div class="hero-links">
@@ -63,41 +63,39 @@
           <circle cx="60" cy="18" r="6" fill="#28c840"/>
           <text x="340" y="23" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" fill="#6a7a90">il — session recorder</text>
 
-          <!-- Run command -->
+          <!-- Main realistic example: il run + real agent -->
           <text x="20" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#00b4d8">&#10095;</text>
-          <text x="38" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il run echo "hello"</text>
+          <text x="38" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il run cursor</text>
 
-          <!-- Output: session started -->
-          <text x="20" y="100" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[il] session started</text>
-          <text x="20" y="120" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  id:      </text>
-          <text x="112" y="120" font-family="JetBrains Mono,monospace" font-size="12" fill="#f9e2af">a3f9c1e2-7b44-4d8a</text>
-          <text x="20" y="140" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  intent:  </text>
-          <text x="112" y="140" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">auth-jwt-001</text>
-          <text x="20" y="160" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  storage: </text>
-          <text x="112" y="160" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">memmap_fs @ ~/.intentloop</text>
+          <!-- Current real output -->
+          <text x="20" y="98" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">▶ Running direct command in /Users/you/project</text>
+          <text x="20" y="114" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">   Command: cursor</text>
 
-          <!-- Command output -->
-          <text x="20" y="190" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">hello</text>
+          <text x="20" y="136" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">Starting Cursor in workspace...</text>
+          <text x="20" y="152" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">Ready. Ask me anything about your code.</text>
 
-          <!-- Session finished -->
-          <text x="20" y="220" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[il] session finished — 2.4s</text>
-          <text x="20" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  report:  </text>
-          <text x="112" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il last   (or il dump report)</text>
+          <text x="20" y="176" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">✓ Session saved</text>
+
+          <text x="20" y="196" font-family="JetBrains Mono,monospace" font-size="10" fill="#6a7a90">Quick commands:</text>
+          <text x="20" y="210" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il last   # 查看最近会话（推荐）</text>
+          <text x="20" y="222" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il show   # 默认最新会话</text>
+          <text x="20" y="234" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il list</text>
 
           <!-- Separator -->
-          <line x1="20" y1="262" x2="660" y2="262" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+          <line x1="20" y1="255" x2="660" y2="255" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
 
-          <!-- Copilot command -->
-          <text x="20" y="290" font-family="JetBrains Mono,monospace" font-size="13" fill="#00b4d8">&#10095;</text>
-          <text x="38" y="290" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il copilot -- suggest "refactor auth module"</text>
+          <!-- Second realistic il run example -->
+          <text x="20" y="278" font-family="JetBrains Mono,monospace" font-size="13" fill="#00b4d8">&#10095;</text>
+          <text x="38" y="278" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il run claude</text>
 
-          <!-- Output -->
-          <text x="20" y="320" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[il] running gh copilot suggest ...</text>
-          <text x="20" y="340" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">✓ PTY session captured</text>
-          <text x="20" y="360" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  events:  </text>
-          <text x="112" y="360" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">42 events recorded</text>
-          <text x="20" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  dump:    </text>
-          <text x="112" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il dump stdout   (latest)</text>
+          <text x="20" y="300" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">▶ Running direct command in /Users/you/project</text>
+          <text x="20" y="316" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">   Command: claude</text>
+
+          <text x="20" y="338" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">claude is ready.</text>
+
+          <text x="20" y="358" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">✓ Session saved</text>
+
+          <text x="20" y="378" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">→ il last   or   il dump report</text>
         </svg>
       </div>
     </section>
@@ -118,34 +116,17 @@
 
       <h2>Session recording</h2>
       <p>
-        Wrap any command with <code>il run</code> to capture a full session. The command runs inside
-        a real pseudo-terminal (PTY), so interactive tools work exactly as expected. Every keystroke,
-        every line of output, every ANSI escape sequence is recorded.
+        Use <code>il run</code> to record any agent. The command executes in a real PTY,
+        so arrow keys, TUI interfaces, and full interactive behavior are preserved exactly.
+        Every keystroke and every byte of output is captured.
       </p>
       <div class="code-block config-block">
-<pre><code># Record any command as a session
-il run echo "hello"
+<pre><code># Record real agents
+il run cursor
+il run claude
 
-# Any environment your agent needs is inherited automatically
-OPENAI_API_KEY=... il run cursor</code></pre>
-      </div>
-
-      <h2>GitHub Copilot integration</h2>
-      <p>
-        Run GitHub Copilot CLI sessions directly inside IntentLoop with full PTY interaction and transcript capture.
-        IntentLoop auto-detects <code>gh copilot</code> or falls back to <code>gh agent-task</code>, so you
-        always get a recorded session.
-      </p>
-      <div class="code-block config-block">
-<pre><code># Auto-detect backend
-il copilot
-
-# Force a specific backend
-il copilot --mode copilot -- suggest "analyze auth flow"
-il copilot --mode agent-task -- create "Refactor auth module"
-
-# Wait for final result (agent-task)
-il copilot --mode agent-task --wait</code></pre>
+# Your environment (API keys, etc.) is inherited automatically
+ANTHROPIC_API_KEY=sk-... il run claude</code></pre>
       </div>
 
       <h2>Inspect sessions</h2>
@@ -164,30 +145,18 @@ il dump stdout -o out.txt</code></pre>
 
       <h2>Local storage</h2>
       <p>
-        All session data is stored in <code>~/.intentloop/</code> (or <code>$INTENTLOOP_HOME</code>)
-        through <code>memmap_fs</code>. IntentLoop no longer creates human-readable
-        <code>sessions/&lt;id&gt;/*.jsonl</code> or <code>report.md</code> files by default.
+        All recordings live exclusively in <code>~/.intentloop/</code> (or <code>$INTENTLOOP_HOME</code>)
+        inside a <code>memmap_fs</code> database. No plain-text <code>report.md</code> or <code>*.jsonl</code> files
+        are written by default.
       </p>
-      <div class="code-block config-block">
-<pre><code>~/.intentloop/
-  memmap_fs internal files  # KV + streams + search index + WAL
-
-Streams:
-  sessions/&lt;id&gt;/stdout
-  sessions/&lt;id&gt;/conversation
-  sessions/&lt;id&gt;/report</code></pre>
-      </div>
-
-      <h2>Environment variables</h2>
       <p>
-        IntentLoop auto-loads <code>.env</code> from the current directory. Configure your LLM provider
-        and API keys per-project without polluting your global environment.
+        Inspect and export content with the normal <code>il</code> commands:
       </p>
       <div class="code-block config-block">
-<pre><code>LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o
-LLM_API_KEY=your_key
-INTENTLOOP_HOME=/path/to/custom/store</code></pre>
+<pre><code>il last                  # most recent session
+il dump report           # export the Markdown report
+il dump conversation     # structured turns
+il dump stdout -o out.txt</code></pre>
       </div>
 
       <h2>Commands</h2>
@@ -196,20 +165,13 @@ INTENTLOOP_HOME=/path/to/custom/store</code></pre>
           <tr><th>Command</th><th>Description</th></tr>
         </thead>
         <tbody>
-          <tr><td>run</td><td><code>il run &lt;cmd&gt; [args...]</code> — Record a session wrapping any command</td></tr>
-          <tr><td>copilot</td><td><code>il copilot [--mode auto|copilot|agent-task]</code> — Run GitHub Copilot in a recorded session</td></tr>
+          <tr><td>run</td><td><code>il run &lt;cmd&gt; [args...]</code> — Record a session wrapping any command (cursor, claude, etc.)</td></tr>
           <tr><td>last</td><td><code>il last</code> — Show the most recent session (recommended)</td></tr>
           <tr><td>show</td><td><code>il show [id]</code> — Inspect latest (or given) session</td></tr>
           <tr><td>list</td><td><code>il list [--limit N]</code> — Recent sessions, newest first</td></tr>
           <tr><td>attach / dump</td><td><code>il attach</code>, <code>il dump report</code> etc. — default to latest session</td></tr>
         </tbody>
       </table>
-
-      <h2>Single binary</h2>
-      <p>
-        Written in Rust. Compiles to a single, fast binary. macOS and Linux: <code>curl -fsSL https://intentloop.dev/install.sh | sh</code> (recommended).
-        No runtime dependencies, no containers, no cloud services required.
-      </p>
 
     </section>
 

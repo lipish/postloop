@@ -85,7 +85,6 @@ You can still pass an explicit ID when needed: `il show <id>`.
 | `il attach [id]`         | Replay ring buffer tail (defaults to latest)      |
 | `il search <query>`      | Full-text search across conversations             |
 | `il dump [id] <stream>`  | Dump any stream of latest (or given) session      |
-| `il copilot ...`         | Run GitHub Copilot CLI inside a recorded session (advanced) |
 
 The official macOS package only ships the `il` binary.
 
@@ -136,13 +135,12 @@ No `env_whitelist` gymnastics needed for normal use.
 
 ## GitHub Copilot CLI
 
-If you use `gh copilot`, you can record those sessions too:
+Just record it like any other tool:
 
 ```bash
-il copilot -- suggest "fix the auth bug"
+il run gh copilot -- suggest "fix the auth bug"
+il run gh agent-task create "Add login feature"
 ```
-
-See `il copilot --help` for the full set of options.
 
 ## License
 
