@@ -77,8 +77,8 @@
           <text x="20" y="176" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">✓ Session saved</text>
 
           <text x="20" y="196" font-family="JetBrains Mono,monospace" font-size="10" fill="#6a7a90">Quick commands:</text>
-          <text x="20" y="210" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il last   # 查看最近会话（推荐）</text>
-          <text x="20" y="222" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il show   # 默认最新会话</text>
+          <text x="20" y="210" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il last   # view latest (recommended)</text>
+          <text x="20" y="222" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il show   # defaults to latest</text>
           <text x="20" y="234" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">  il list</text>
 
           <!-- Separator -->
@@ -131,16 +131,23 @@ ANTHROPIC_API_KEY=sk-... il run claude</code></pre>
 
       <h2>Inspect sessions</h2>
       <p>
-        After recording, use <code>il last</code> or just <code>il show</code> / <code>il dump</code> — they default to the most recent session.
-        No need to copy long IDs for normal use.
+        After recording, <code>il last</code> (or bare <code>il show</code>) shows metadata and proves that the full conversation with the LLM/agent was captured.
       </p>
       <div class="code-block config-block">
-<pre><code>il list                 # newest first
-il last                 # the latest session (recommended)
-il show                 # same as last
-il attach               # ring buffer tail
-il dump report          # latest report
-il dump stdout -o out.txt</code></pre>
+<pre><code>$ il last
+
+Session: 019e6c0a-8f2b-...
+Status: succeeded
+Started: 2026-05-30T15:12:33
+Command: cursor
+Thought events: 124
+
+Conversation: memmap_fs:sessions/.../conversation (18.7 KiB)
+Report:         memmap_fs:sessions/.../report (2.1 KiB)
+Ring buffer:    memmap_fs:sessions/.../ring (67 KiB)
+
+# Read the actual back-and-forth with the LLM
+il dump conversation</code></pre>
       </div>
 
       <h2>Local storage</h2>
