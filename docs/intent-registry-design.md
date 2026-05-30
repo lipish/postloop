@@ -129,10 +129,11 @@ struct ConversationTurn {
 
 ```bash
 il run <agent-cli> [args...]      # 包装执行并记录会话
-il list [--limit N]               # 列出历史会话
-il show <session-id>              # 显示会话详情/报告
-il attach <session-id>            # 重放会话终端流
-il dump <session-id> <stream>     # 查看或导出 memmap_fs stream
+il list [--limit N]               # 列出历史会话（最新在前）
+il last                           # 查看最近一次会话（推荐，无需 ID）
+il show [session-id]              # 显示会话详情（默认最新）
+il attach [session-id]            # 重放会话终端流（默认最新）
+il dump [session-id] <stream>     # 查看或导出 memmap_fs stream（默认最新）
 ```
 
 ---

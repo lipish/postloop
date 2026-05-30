@@ -19,13 +19,15 @@ cd /tmp/intentloop-case-api-gateway
 
 Session ID：`019ca868-bfb9-7920-b26f-920eda10e03a`
 
+> **Note (2026-05)**: This historical case was recorded under an earlier storage model and INTENT.md processing. Current IntentLoop uses only `memmap_fs` (inspect via `il dump` / `il last` etc.) and no longer reads INTENT.md files.
+
 ## 过程记录了什么
 
 - 输入意图：`INTENT.md`（id/title/背景/目标/约束）
 - 执行命令：`./fake-gateway-agent.sh`
 - 标准输出：每个步骤日志（inspect intent / create dirs / write config / write scripts / summary）
 - 会话元数据：start/end/exit code/status
-- 最终报告：`.intent/sessions/<id>/report.md`
+- 最终报告：通过 `il dump report` 查看（当前存储在 memmap_fs 中）
 
 ## 本次关键输出（stdout 摘要）
 

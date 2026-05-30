@@ -82,7 +82,7 @@
           <!-- Session finished -->
           <text x="20" y="220" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">[il] session finished — 2.4s</text>
           <text x="20" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  report:  </text>
-          <text x="112" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il dump a3f9c1e2 report</text>
+          <text x="112" y="240" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il last   (or il dump report)</text>
 
           <!-- Separator -->
           <line x1="20" y1="262" x2="660" y2="262" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
@@ -97,7 +97,7 @@
           <text x="20" y="360" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  events:  </text>
           <text x="112" y="360" font-family="JetBrains Mono,monospace" font-size="12" fill="#cdd6f4">42 events recorded</text>
           <text x="20" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#6a7a90">  dump:    </text>
-          <text x="112" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il dump &lt;id&gt; stdout</text>
+          <text x="112" y="380" font-family="JetBrains Mono,monospace" font-size="12" fill="#7aa2f7">il dump stdout   (latest)</text>
         </svg>
       </div>
     </section>
@@ -126,8 +126,8 @@
 <pre><code># Record any command as a session
 il run echo "hello"
 
-# Record with a specific intent reference
-INTENT_ID=auth-jwt-001 il run cargo test</code></pre>
+# Any environment your agent needs is inherited automatically
+OPENAI_API_KEY=... il run cursor</code></pre>
       </div>
 
       <h2>GitHub Copilot integration</h2>
@@ -150,25 +150,16 @@ il copilot --mode agent-task --wait</code></pre>
 
       <h2>Inspect sessions</h2>
       <p>
-        Every session is stored with a unique ID. Use <code>il show</code> to inspect metadata,
-        view metadata and stored <code>memmap_fs</code> stream references, then use <code>il dump</code>
-        to inspect or export stdout, conversation, events, or reports.
+        After recording, use <code>il last</code> or just <code>il show</code> / <code>il dump</code> — they default to the most recent session.
+        No need to copy long IDs for normal use.
       </p>
       <div class="code-block config-block">
-<pre><code>il show a3f9c1e2-7b44-4d8a
-il dump a3f9c1e2-7b44-4d8a conversation
-il dump a3f9c1e2-7b44-4d8a report --output report.md</code></pre>
-      </div>
-
-      <h2>Intent references</h2>
-      <p>
-        Create an <code>INTENT.md</code> file in your repo root to link sessions to specific development intents.
-        IntentLoop reads the <code>id</code> and <code>title</code> fields and embeds them in session metadata.
-      </p>
-      <div class="code-block config-block">
-<pre><code># INTENT.md
-id: auth-jwt-001
-title: Login refactor to JWT</code></pre>
+<pre><code>il list                 # newest first
+il last                 # the latest session (recommended)
+il show                 # same as last
+il attach               # ring buffer tail
+il dump report          # latest report
+il dump stdout -o out.txt</code></pre>
       </div>
 
       <h2>Local storage</h2>
@@ -207,8 +198,10 @@ INTENTLOOP_HOME=/path/to/custom/store</code></pre>
         <tbody>
           <tr><td>run</td><td><code>il run &lt;cmd&gt; [args...]</code> — Record a session wrapping any command</td></tr>
           <tr><td>copilot</td><td><code>il copilot [--mode auto|copilot|agent-task]</code> — Run GitHub Copilot in a recorded session</td></tr>
-          <tr><td>show</td><td><code>il show &lt;session-id&gt;</code> — Inspect session metadata and stream references</td></tr>
-          <tr><td>dump</td><td><code>il dump &lt;session-id&gt; &lt;stream&gt;</code> — Print or export stored streams</td></tr>
+          <tr><td>last</td><td><code>il last</code> — Show the most recent session (recommended)</td></tr>
+          <tr><td>show</td><td><code>il show [id]</code> — Inspect latest (or given) session</td></tr>
+          <tr><td>list</td><td><code>il list [--limit N]</code> — Recent sessions, newest first</td></tr>
+          <tr><td>attach / dump</td><td><code>il attach</code>, <code>il dump report</code> etc. — default to latest session</td></tr>
         </tbody>
       </table>
 

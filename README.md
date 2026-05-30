@@ -61,23 +61,30 @@ il run kimi
 
 ## Inspect what happened
 
+After a session, you rarely need the ID anymore:
+
 ```bash
-il list
-il show <session-id>
-il attach <session-id>     # replay the last ~2000 characters of the session
-il dump <session-id> stdout
+il list                 # recent sessions, newest first
+il last                 # the most recent session (recommended)
+il show                 # same as `il last` (defaults to latest)
+il attach               # ring buffer tail of the latest session
+il dump report          # export the report of the latest session
+il dump stdout -o out.txt
 ```
+
+You can still pass an explicit ID when needed: `il show <id>`.
 
 ## Commands
 
 | Command                  | What it does                                      |
 |--------------------------|---------------------------------------------------|
 | `il run <name>`          | Launch `<name>` (exactly as it works in your normal shell) and record the full PTY session |
-| `il list`                | List recent recorded sessions                     |
-| `il show <id>`           | Show metadata and stored stream references        |
-| `il attach <id>`         | Replay the tail of the ring buffer (last ~2000 chars) |
-| `il search <query>`      | Search recorded session conversations             |
-| `il dump <id> <stream>`  | Dump a stored stream (`stdout`, `conversation`, `report`, etc.) |
+| `il list [--limit N]`    | List recent sessions (newest first, default 10)   |
+| `il last`                | Show the most recent session                        |
+| `il show [id]`           | Show metadata/streams (defaults to latest)        |
+| `il attach [id]`         | Replay ring buffer tail (defaults to latest)      |
+| `il search <query>`      | Full-text search across conversations             |
+| `il dump [id] <stream>`  | Dump any stream of latest (or given) session      |
 | `il copilot ...`         | Run GitHub Copilot CLI inside a recorded session (advanced) |
 
 The official macOS package only ships the `il` binary.
@@ -92,12 +99,13 @@ Session metadata, raw terminal streams, derived artifacts, and search indexes ar
   memmap_fs files              # KV + streams + search index + WAL
 ```
 
-Default session data is not exposed as `sessions/<id>/*.jsonl` files. Use `il` to inspect or export it:
+Default session data is not exposed as files. Use `il` to inspect or export (most commands default to the latest session):
 
 ```bash
-il dump <session-id> stdout
-il dump <session-id> conversation
-il dump <session-id> report --output report.md
+il dump stdout
+il dump conversation
+il dump report --output report.md
+# or with explicit id when needed: il dump <id> report
 ```
 
 ```bash
