@@ -165,6 +165,7 @@ fn is_tool_activity_line(line: &str) -> bool {
     if t.len() < 4 {
         return true;
     }
+    let lower = t.to_lowercase();
     is_noise_line(t)
         || t.starts_with("Globbing")
         || t.starts_with("Grepping")
@@ -175,6 +176,22 @@ fn is_tool_activity_line(line: &str) -> bool {
         || t.starts_with("Ran ")
         || t.starts_with("WebFetch")
         || t.starts_with("cat ")
+        // 额外覆盖真实会话中泄漏的 gh/CI/Waited 片段（即使上游 filter 版本较旧的存档）
+        || lower.starts_with("waited for")
+        || lower.contains("waited for ")
+        || lower.contains("grok bui")
+        || lower.contains(" in shell")
+        || lower.contains("\"conclusion\"")
+        || lower.contains("\"createdat\"")
+        || lower.contains("complete|error")
+        || lower.contains("uploading|bundling")
+        || (lower.contains("globbed") && lower.contains("read"))
+        || (lower.contains("grepped") && lower.contains("read"))
+        || (t.len() < 60 && lower.trim_start().chars().next().is_some_and(|c| c.is_ascii_digit()) && lower.contains("background"))
+        || lower.contains("… trunca")
+        || lower.starts_with("your br")
+        // 拆分的 gh actions 片段
+        || (lower.contains("/actions/r") && t.len() < 150)
 }
 
 /// 将 Agent 文本中的连续工具/思考痕迹折叠为单行摘要。
@@ -381,8 +398,8 @@ mod tests {
 
     #[test]
     fn fold_internal_thoughts_collapses_real_agent_noise() {
-        // 模拟从 conversation turn.text 反序列化后得到的带真实换行的 agent 文本（包含 Grok/Cursor 真实痕迹）
-        let noisy = "Cursor Agent\nv2026.05.28\nGrok Build 0.1 1M\nGlobbing, grepping 2 globs, 1 grep\nGlobbed, grepped 2 globs, 1 grep\nTo-do Working on 4 to-dos\n☐ 监控\nWaiting 2m for shell\nMonitored background task\nRan ls\nWebFetch https://...\n{\"status\":\"in_progress\"}\n我已经完成了所有修改，核心是更激进过滤+折叠。\n额外的一点说明。";
+        // 模拟从 conversation turn.text 反序列化后得到的带真实换行的 agent 文本（包含 Grok/Cursor 真实痕迹 + gh/CI 监控片段）
+        let noisy = "Cursor Agent\nv2026.05.28\nGrok Build 0.1 1M\nGlobbing, grepping 2 globs, 1 grep\nGlobbed, grepped 2 globs, 1 grep\nTo-do Working on 4 to-dos\n☐ 监控\nWaiting 2m for shell\nMonitored background task\nRan ls\nWebFetch https://...\n{\"status\":\"in_progress\"}\nWaited for \"Success|Published|https://intentloop.dev|De\n2 background\ncomplete|Error|failed|✨|Uploading|Bundling|Finished\n[{\"conclusion\":\"\",\"createdAt\":\"2026-05-31T05:54\"}\n我已经完成了所有修改，核心是更激进过滤+折叠。\n额外的一点说明。";
 
         let folded = fold_internal_thoughts(noisy);
 
@@ -390,7 +407,7 @@ mod tests {
         assert!(folded.contains("核心是更激进过滤+折叠"));
         assert!(folded.contains("额外的一点说明"));
 
-        // 噪音全部消失
+        // 噪音全部消失（包括新观察到的 gh/CI/Waited 片段）
         assert!(!folded.contains("Globbing, grepping"));
         assert!(!folded.contains("Grok Build"));
         assert!(!folded.contains("To-do Working"));
@@ -399,6 +416,10 @@ mod tests {
         assert!(!folded.contains("Monitored background"));
         assert!(!folded.contains("WebFetch"));
         assert!(!folded.contains("in_progress"));
+        assert!(!folded.contains("Waited for"));
+        assert!(!folded.contains("complete|Error"));
+        assert!(!folded.contains("conclusion"));
+        assert!(!folded.contains("2 background"));
 
         // 出现折叠摘要
         assert!(folded.contains("[Agent 内部操作已折叠"));

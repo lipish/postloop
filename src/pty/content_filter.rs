@@ -209,8 +209,9 @@ fn is_agent_internal_trace(line: &str) -> bool {
     }
     let lower = t.to_lowercase();
 
-    // 版本/品牌横幅
+    // 版本/品牌横幅（含截断如 "Grok Bui"）
     if lower.contains("grok build")
+        || lower.contains("grok bui")
         || lower.contains("cursor agent")
         || lower.starts_with("grok build 0.")
     {
@@ -267,12 +268,69 @@ fn is_agent_internal_trace(line: &str) -> bool {
         return true;
     }
 
-    // 纯 JSON 状态对象（常出现在 agent 自我调试输出中）
-    if t.starts_with('{')
-        && t.ends_with('}')
+    // 纯 JSON 状态对象或片段（gh watch、deploy、action 状态等，含截断情况）
+    if (t.starts_with('{')
+        || t.starts_with("[{")
+        || t.contains("\"conclusion\"")
+        || t.contains("\"createdat\""))
         && (lower.contains("\"status\"")
             || lower.contains("\"conclusion\"")
-            || lower.contains("\"in_progress\""))
+            || lower.contains("\"in_progress\"")
+            || lower.contains("conclusion")
+            || lower.contains("createdat")
+            || lower.contains("startedat"))
+        && t.len() < 400
+    {
+        return true;
+    }
+
+    // "Waited for ..." 及 shell 后台任务监控输出（Grok/Cursor 工具内部等待循环）
+    if lower.starts_with("waited for")
+        || lower.contains("waited for ")
+        || lower.contains("waiting for \"")
+        || lower.contains(" in shell")
+    {
+        return true;
+    }
+
+    // Waited/JSON 长行在屏幕/快照中被拆分的尾部片段（含 /actions/r 等）
+    if (lower.contains("/actions/r") || lower.contains("actions/runs")) && t.len() < 150 {
+        return true;
+    }
+
+    // 管道分隔的复合状态日志（complete|Error|Uploading|... 典型于 gh / wrangler / deploy 监控）
+    if t.matches('|').count() >= 2 && t.len() < 160 {
+        return true;
+    }
+    if lower.contains("complete|error|failed")
+        || lower.contains("uploading|bundling")
+        || lower.contains("✨|uploading")
+    {
+        return true;
+    }
+
+    // 具体动词组合内部操作（从真实会话观察到的 "Globbed, read", "Grepped, read 3 greps" 等）
+    let combined =
+        lower.contains("globbed") && (lower.contains("read") || lower.contains("grepped"));
+    let grepped_read = lower.contains("grepped") && lower.contains("read");
+    if (combined || grepped_read) && t.len() < 120 {
+        return true;
+    }
+
+    // 数字开头 + background 任务
+    if t.len() < 60
+        && lower
+            .trim_start()
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit())
+        && lower.contains("background")
+    {
+        return true;
+    }
+
+    // 截断或分支状态痕迹
+    if lower.contains("… trunca") || lower.starts_with("your br") || lower.starts_with("on branch")
     {
         return true;
     }
@@ -340,5 +398,31 @@ mod tests {
         ));
         // 纯英文短进度无 CJK -> 过滤
         assert!(is_noise_line("Processing 87%..."));
+    }
+
+    #[test]
+    fn filters_new_gh_ci_waited_fragments_seen_in_real_sessions() {
+        // 真实 v0.7.x 会话中出现的 gh watch / deploy / shell 监控输出
+        assert!(is_noise_line(
+            "Waited for \"Success|Published|https://intentloop.dev|De"
+        ));
+        assert!(is_noise_line(
+            "gress\",\"url\":\"https://github.com/.../actions/r"
+        ));
+        assert!(is_noise_line(
+            "[{\"conclusion\":\"\",\"createdAt\":\"2026-05-31T05:54:04Z\""
+        ));
+        assert!(is_noise_line(
+            "complete|Error|failed|✨|Uploading|Bundling|Finished"
+        ));
+        assert!(is_noise_line("Globbed, read 3 files"));
+        assert!(is_noise_line("Grepped, read 3 greps"));
+        assert!(is_noise_line("2 background"));
+        assert!(is_noise_line("Your br"));
+        assert!(is_noise_line("… trunca"));
+        assert!(is_noise_line("{\"status\":\"in_progress\",\"number\":9}"));
+        assert!(is_noise_line("Waited for \"Success|...\" in shell"));
+        // Grok 片段
+        assert!(is_noise_line("Grok Bui"));
     }
 }
