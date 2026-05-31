@@ -141,7 +141,7 @@ Conversation: .../conversation (18.7 KiB)</code></pre>
         See the exact conversation you had with the agent:
       </p>
       <div class="code-block config-block">
-<pre><code>$ il dump conversation
+<pre><code>$ il dump chat
 
 User:
   Add rate limiting to this API endpoint
@@ -171,8 +171,9 @@ Assistant:
       </p>
       <div class="code-block config-block">
 <pre><code>il last                  # most recent session
+il dump chat             # human-readable conversation (recommended)
+il dump conversation     # raw JSONL turns
 il dump report           # export the Markdown report
-il dump conversation     # structured turns
 il dump stdout -o out.txt</code></pre>
       </div>
 
@@ -186,7 +187,7 @@ il dump stdout -o out.txt</code></pre>
           <tr><td>last</td><td><code>il last</code> — Show the most recent session (recommended)</td></tr>
           <tr><td>show</td><td><code>il show [id]</code> — Inspect latest (or given) session</td></tr>
           <tr><td>list</td><td><code>il list [--limit N]</code> — Recent sessions, newest first</td></tr>
-          <tr><td>dump</td><td><code>il dump report</code>, <code>il dump conversation</code> etc. — export any stream (defaults to latest)</td></tr>
+          <tr><td>dump</td><td><code>il dump chat</code> (pretty), <code>il dump conversation</code> (raw) etc. — export any stream (defaults to latest)</td></tr>
         </tbody>
       </table>
 

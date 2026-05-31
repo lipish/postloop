@@ -67,6 +67,7 @@ After a session, you rarely need the ID anymore:
 il list                 # recent sessions, newest first
 il last                 # the most recent session (recommended)
 il show                 # same as `il last` (defaults to latest)
+il dump chat            # view the conversation (recommended)
 il dump report          # export the report of the latest session
 il dump stdout -o out.txt
 ```
@@ -100,7 +101,8 @@ Default session data is not exposed as files. Use `il` to inspect or export (mos
 
 ```bash
 il dump stdout
-il dump conversation
+il dump chat
+il dump conversation     # raw JSONL if needed
 il dump report --output report.md
 # or with explicit id when needed: il dump <id> report
 ```
