@@ -11,7 +11,7 @@
 # Pin a specific version (recommended if network is slow/unstable):
 #   INTENTLOOP_VERSION=0.5.0 curl -fsSL https://intentloop.dev/install.sh | sh
 #
-# Deployed: 2026-05-27 - v0.6.2 installer improvements (prebuilt binary preference, no sudo by default, better fallback messages)
+# Deployed: 2026-05-31 - v0.7.0 (il dump chat, latest-session defaults, remove attach/copilot special commands, docs overhaul)
 
 set -euo pipefail
 
