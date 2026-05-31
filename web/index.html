@@ -63,16 +63,15 @@
           <circle cx="60" cy="18" r="6" fill="#28c840"/>
           <text x="340" y="23" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" fill="#6a7a90">il — session recorder</text>
 
-          <!-- Main realistic example: il run + real agent -->
+          <!-- Main example: record a session -->
           <text x="20" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#00b4d8">&#10095;</text>
-          <text x="38" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il run cursor</text>
+          <text x="38" y="70" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il run opencode</text>
 
           <!-- Current real output -->
           <text x="20" y="98" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">▶ Running direct command in /Users/you/project</text>
-          <text x="20" y="114" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">   Command: cursor</text>
+          <text x="20" y="114" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">   Command: opencode</text>
 
-          <text x="20" y="136" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">Starting Cursor in workspace...</text>
-          <text x="20" y="152" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">Ready. Ask me anything about your code.</text>
+          <text x="20" y="136" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">OpenCode ready. How can I help you code today?</text>
 
           <text x="20" y="176" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">✓ Session saved</text>
 
@@ -84,18 +83,18 @@
           <!-- Separator -->
           <line x1="20" y1="255" x2="660" y2="255" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
 
-          <!-- Second realistic il run example -->
+          <!-- Second example -->
           <text x="20" y="278" font-family="JetBrains Mono,monospace" font-size="13" fill="#00b4d8">&#10095;</text>
           <text x="38" y="278" font-family="JetBrains Mono,monospace" font-size="13" fill="#cdd6f4">il run claude</text>
 
           <text x="20" y="300" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">▶ Running direct command in /Users/you/project</text>
           <text x="20" y="316" font-family="JetBrains Mono,monospace" font-size="11" fill="#6a7a90">   Command: claude</text>
 
-          <text x="20" y="338" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">claude is ready.</text>
+          <text x="20" y="338" font-family="JetBrains Mono,monospace" font-size="11" fill="#cdd6f4">Claude ready.</text>
 
           <text x="20" y="358" font-family="JetBrains Mono,monospace" font-size="12" fill="#a6e3a1">✓ Session saved</text>
 
-          <text x="20" y="378" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">→ il last   or   il dump report</text>
+          <text x="20" y="378" font-family="JetBrains Mono,monospace" font-size="10" fill="#7aa2f7">→ il last   (view the conversation)</text>
         </svg>
       </div>
     </section>
@@ -106,48 +105,59 @@
 
       <h2>What is IntentLoop?</h2>
       <p>
-        IntentLoop is a <strong>Rust CLI tool</strong> for recording AI agent coding sessions locally.
-        It wraps any agent command — GitHub Copilot, custom LLM prompts, or shell scripts — and captures
-        the full session: intent metadata, terminal output, structured events, conversation turns, and reports.
+        <strong>IntentLoop saves the full conversation history between you and your AI coding agents.</strong>
       </p>
       <p>
-        Everything stays on your machine. No cloud, no telemetry, no accounts.
+        It is a simple local recorder. Use <code>il run</code> to start a session with any agent
+        (OpenCode, Claude, etc.). Later use <code>il last</code> or <code>il show</code>
+        to review exactly what you and the agent said to each other — all stored privately on your machine.
       </p>
 
-      <h2>Session recording</h2>
+      <h2>Record a conversation with <code>il run</code></h2>
       <p>
-        Use <code>il run</code> to record any agent. The command executes in a real PTY,
-        so arrow keys, TUI interfaces, and full interactive behavior are preserved exactly.
-        Every keystroke and every byte of output is captured.
+        Start any agent inside IntentLoop. Everything you and the agent say to each other is saved.
       </p>
       <div class="code-block config-block">
-<pre><code># Record real agents
-il run cursor
+<pre><code># Popular agents
+il run opencode
 il run claude
 
-# Your environment (API keys, etc.) is inherited automatically
+# Your keys and environment are passed through automatically
 ANTHROPIC_API_KEY=sk-... il run claude</code></pre>
       </div>
 
-      <h2>Inspect sessions</h2>
+      <h2>Review the conversation later with <code>il last</code> / <code>il show</code></h2>
       <p>
-        After recording, <code>il last</code> (or bare <code>il show</code>) shows metadata and proves that the full conversation with the LLM/agent was captured.
+        After the session ends, view what you and the agent actually discussed:
       </p>
       <div class="code-block config-block">
 <pre><code>$ il last
-
 Session: 019e6c0a-8f2b-...
-Status: succeeded
-Started: 2026-05-30T15:12:33
-Command: cursor
-Thought events: 124
+Command: opencode
+Conversation: .../conversation (18.7 KiB)</code></pre>
+      </div>
 
-Conversation: memmap_fs:sessions/.../conversation (18.7 KiB)
-Report:         memmap_fs:sessions/.../report (2.1 KiB)
-Ring buffer:    memmap_fs:sessions/.../ring (67 KiB)
+      <p>
+        See the exact conversation you had with the agent:
+      </p>
+      <div class="code-block config-block">
+<pre><code>$ il dump conversation
 
-# Read the actual back-and-forth with the LLM
-il dump conversation</code></pre>
+User:
+  Add rate limiting to this API endpoint
+
+Assistant:
+  I'll first analyze the current handler and identify all 
+  public endpoints that need protection.
+
+User:
+  Use a sliding window in Redis
+
+Assistant:
+  Understood. Here's the implementation plan:
+    1. Add rate limiter middleware
+    2. Use Redis with a sliding window algorithm
+    3. Return 429 on exceed</code></pre>
       </div>
 
       <h2>Local storage</h2>
@@ -172,7 +182,7 @@ il dump stdout -o out.txt</code></pre>
           <tr><th>Command</th><th>Description</th></tr>
         </thead>
         <tbody>
-          <tr><td>run</td><td><code>il run &lt;cmd&gt; [args...]</code> — Record a session wrapping any command (cursor, claude, etc.)</td></tr>
+          <tr><td>run</td><td><code>il run &lt;cmd&gt; [args...]</code> — Record a full session with any agent (saves the conversation)</td></tr>
           <tr><td>last</td><td><code>il last</code> — Show the most recent session (recommended)</td></tr>
           <tr><td>show</td><td><code>il show [id]</code> — Inspect latest (or given) session</td></tr>
           <tr><td>list</td><td><code>il list [--limit N]</code> — Recent sessions, newest first</td></tr>
