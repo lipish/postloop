@@ -396,9 +396,23 @@ pub fn cmd_dump(
         })?;
 
     let output_data: Vec<u8> = if pretty {
-        // Pretty human-readable chat view (for `il dump chat`)
-        let formatted = conversation::format_conversation_chat(&bytes);
-        formatted.into_bytes()
+        match stream.as_str() {
+            "chat" | "conversation" => {
+                // `il dump chat`
+                let formatted = conversation::format_conversation_chat(&bytes);
+                formatted.into_bytes()
+            }
+            "timeline" => {
+                // `il dump timeline` —— 最可靠的完整 Human 输入 + 时间戳 + stdout 上下文
+                // 额外读取 events 流（包含 PtyInput/PtyOutput + offset）做精确关联
+                let events_bytes = registry
+                    .read_stream_to_bytes(&resolved_id, "events")
+                    .unwrap_or_default();
+                let formatted = conversation::format_timeline_annotated(&bytes, &events_bytes);
+                formatted.into_bytes()
+            }
+            _ => bytes,
+        }
     } else {
         bytes
     };
@@ -407,7 +421,11 @@ pub fn cmd_dump(
         let mut file = fs::File::create(path)?;
         file.write_all(&output_data)?;
         let label = if pretty {
-            "chat (pretty)"
+            match stream.as_str() {
+                "timeline" => "timeline (annotated with events)",
+                "chat" | "conversation" => "chat (pretty)",
+                _ => &storage_stream,
+            }
         } else {
             &storage_stream
         };
@@ -431,11 +449,12 @@ fn resolve_dump_request(requested: &str) -> Result<(String, bool), anyhow::Error
     match requested {
         "chat" => Ok(("conversation".to_string(), true)),
         "conversation" => Ok(("conversation".to_string(), false)),
+        "timeline" => Ok(("stdin".to_string(), true)), // 特殊 pretty：用原始 stdin 重建完整输入时间线
         "stdout" | "stdin" | "stderr" | "ring" | "events" | "normalized" | "thoughts" | "report" => {
             Ok((requested.to_string(), false))
         }
         _ => Err(anyhow!(
-            "Unknown stream '{}'. Expected one of: stdout, stdin, stderr, ring, events, normalized, conversation, chat, thoughts, report",
+            "Unknown stream '{}'. Expected one of: stdout, stdin, stderr, ring, events, normalized, conversation, chat, timeline, thoughts, report",
             requested
         )),
     }
