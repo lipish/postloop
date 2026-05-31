@@ -1,7 +1,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::pty::content_filter::filter_content_lines;
+use crate::pty::content_filter::{filter_content_lines, is_noise_line};
 use crate::pty::terminal_input::{parse_submitted_lines, strip_terminal_escapes};
 use crate::pty::vt100_recorder::{
     lines_added, stdout_has_ansi, unique_content_lines, ScreenSnapshot, Vt100Recorder,
@@ -159,12 +159,107 @@ pub fn snapshots_to_jsonl(snapshots: &[ScreenSnapshot]) -> Vec<String> {
         .collect()
 }
 
-/// Format conversation turns into a human-friendly chat view.
-/// Used by `il dump chat`.
+/// 检测单行是否为典型的 Agent 工具/状态活动（用于折叠）。
+fn is_tool_activity_line(line: &str) -> bool {
+    let t = line.trim();
+    if t.len() < 4 {
+        return true;
+    }
+    is_noise_line(t)
+        || t.starts_with("Globbing")
+        || t.starts_with("Grepping")
+        || t.starts_with("Reading")
+        || t.starts_with("Writing")
+        || t.starts_with("Executing")
+        || t.contains(" in .") && t.len() < 90
+        || t.starts_with("Ran ")
+        || t.starts_with("WebFetch")
+        || t.starts_with("cat ")
+}
+
+/// 将 Agent 文本中的连续工具/思考痕迹折叠为单行摘要。
+/// 提炼核心交互：保留用户输入 + Agent 最终回答，工具调用以摘要形式记录。
+fn fold_internal_thoughts(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    let mut tool_run = 0usize;
+    let mut verbs_seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+
+        if is_tool_activity_line(line) || (trimmed.len() < 6 && !trimmed.is_empty()) {
+            tool_run += 1;
+            // 粗略统计动作类型
+            let l = trimmed.to_lowercase();
+            for v in [
+                "glob", "grep", "read", "write", "exec", "fetch", "plan", "build", "search",
+            ] {
+                if l.contains(v) {
+                    verbs_seen.insert(v);
+                }
+            }
+            i += 1;
+            continue;
+        }
+
+        if tool_run >= 2 {
+            let summary = if verbs_seen.is_empty() {
+                format!("[Agent 内部操作已折叠（{} 行工具/状态日志）]", tool_run)
+            } else {
+                let vs: Vec<_> = verbs_seen.iter().copied().collect();
+                format!(
+                    "[Agent 内部操作已折叠（{} 行，涉及 {} 等工具调用）]",
+                    tool_run,
+                    vs.join("/")
+                )
+            };
+            out.push(summary);
+            verbs_seen.clear();
+            tool_run = 0;
+        } else if tool_run > 0 {
+            // 短的连续噪声，丢弃（不值得单独显示）
+            tool_run = 0;
+            verbs_seen.clear();
+        }
+
+        if !trimmed.is_empty() {
+            out.push(trimmed.to_string());
+        }
+        i += 1;
+    }
+
+    // 尾部工具块
+    if tool_run >= 2 {
+        let summary = if verbs_seen.is_empty() {
+            format!("[Agent 内部操作已折叠（{} 行工具/状态日志）]", tool_run)
+        } else {
+            let vs: Vec<_> = verbs_seen.iter().copied().collect();
+            format!(
+                "[Agent 内部操作已折叠（{} 行，涉及 {} 等工具调用）]",
+                tool_run,
+                vs.join("/")
+            )
+        };
+        out.push(summary);
+    }
+
+    out.join("\n")
+}
+
+/// Format conversation turns into a human-friendly chat view (il dump chat 推荐输出)。
 ///
-/// - Clear User/Agent role labels with light color
-/// - Direct readable text (no JSON)
-/// - Short timestamp (HH:MM)
+/// 设计目标：仅提炼最核心的用户-代理交互。
+/// - User 输入完整保留
+/// - Agent 最终回答完整保留
+/// - Agent 内部工具调用、思考轨迹、状态日志（Globbing/Grepping/To-do/Grok Build 等）自动折叠为摘要
+/// - 工具使用以计数形式记录在折叠说明中（详细原始轨迹请用 `il dump thoughts` 或 `il dump stdout`）
+///
+/// 输出特点：
+/// - 彩色角色标签 + 短时间戳
+/// - 无 JSON、无噪音、无重复状态行
 pub fn format_conversation_chat(jsonl: &[u8]) -> String {
     let mut out = String::new();
     let text = String::from_utf8_lossy(jsonl);
@@ -188,9 +283,16 @@ pub fn format_conversation_chat(jsonl: &[u8]) -> String {
                 .unwrap_or_default();
 
             out.push_str(&format!("{}{}{}{}\n", color, role_label, short_ts, reset));
-            let body = turn.text.trim();
+
+            let raw_body = turn.text.trim();
+            let body = if is_user {
+                raw_body.to_string()
+            } else {
+                fold_internal_thoughts(raw_body)
+            };
+
             if !body.is_empty() {
-                out.push_str(body);
+                out.push_str(&body);
                 out.push_str("\n\n");
             }
         }
@@ -275,5 +377,66 @@ mod tests {
         assert!(!pretty.contains("\"text\""));
         // Should contain short time
         assert!(pretty.contains("(10:22)"));
+    }
+
+    #[test]
+    fn fold_internal_thoughts_collapses_real_agent_noise() {
+        // 模拟从 conversation turn.text 反序列化后得到的带真实换行的 agent 文本（包含 Grok/Cursor 真实痕迹）
+        let noisy = "Cursor Agent\nv2026.05.28\nGrok Build 0.1 1M\nGlobbing, grepping 2 globs, 1 grep\nGlobbed, grepped 2 globs, 1 grep\nTo-do Working on 4 to-dos\n☐ 监控\nWaiting 2m for shell\nMonitored background task\nRan ls\nWebFetch https://...\n{\"status\":\"in_progress\"}\n我已经完成了所有修改，核心是更激进过滤+折叠。\n额外的一点说明。";
+
+        let folded = fold_internal_thoughts(noisy);
+
+        assert!(folded.contains("我已经完成了所有修改"));
+        assert!(folded.contains("核心是更激进过滤+折叠"));
+        assert!(folded.contains("额外的一点说明"));
+
+        // 噪音全部消失
+        assert!(!folded.contains("Globbing, grepping"));
+        assert!(!folded.contains("Grok Build"));
+        assert!(!folded.contains("To-do Working"));
+        assert!(!folded.contains("☐"));
+        assert!(!folded.contains("Waiting 2m"));
+        assert!(!folded.contains("Monitored background"));
+        assert!(!folded.contains("WebFetch"));
+        assert!(!folded.contains("in_progress"));
+
+        // 出现折叠摘要
+        assert!(folded.contains("[Agent 内部操作已折叠"));
+        assert!(folded.contains("glob") || folded.contains("工具"));
+    }
+
+    #[test]
+    fn format_conversation_chat_folds_grok_cursor_tool_noise() {
+        // 使用 serde 正确构造带转义 \n 的 JSONL，模拟真实存储的 conversation 流
+        let turns = vec![
+            ConversationTurn {
+                role: "user".into(),
+                text: "为什么还是很乱？".into(),
+                ts: "2026-05-31T14:50:00Z".into(),
+            },
+            ConversationTurn {
+                role: "agent".into(),
+                text: "Cursor Agent\nv2026\nGrok Build 0.1\nGlobbing, grepping\nTo-do Working on 3\n☐ foo\nWaiting for shell\n我已用更激进的过滤完成优化。".into(),
+                ts: "2026-05-31T14:50:10Z".into(),
+            },
+        ];
+        let jsonl_bytes = turns_to_jsonl(&turns).join("\n").into_bytes();
+
+        let pretty = format_conversation_chat(&jsonl_bytes);
+
+        assert!(pretty.contains("User"));
+        assert!(pretty.contains("Agent"));
+        assert!(pretty.contains("为什么还是很乱"));
+        assert!(pretty.contains("我已用更激进的过滤完成优化"));
+
+        // 无任何噪音
+        assert!(!pretty.contains("Globbing"));
+        assert!(!pretty.contains("Grok Build"));
+        assert!(!pretty.contains("To-do"));
+        assert!(!pretty.contains("☐"));
+        assert!(!pretty.contains("Waiting for shell"));
+
+        // 有折叠提示（记录了工具调用）
+        assert!(pretty.contains("[Agent 内部操作已折叠"));
     }
 }

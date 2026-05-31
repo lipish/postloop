@@ -7,7 +7,7 @@
 //! - 新 Agent TUI 出现时，优先扩展 looks_like_natural_language() 而非盲目加前缀。
 
 pub fn is_noise_line(line: &str) -> bool {
-    is_chrome_line(line) || is_tool_status_line(line)
+    is_chrome_line(line) || is_tool_status_line(line) || is_agent_internal_trace(line)
 }
 
 pub fn is_substantive_line(line: &str) -> bool {
@@ -197,6 +197,87 @@ fn looks_like_natural_language(lower: &str, orig: &str) -> bool {
         || orig.contains("？")
         || (orig.ends_with('.') && !orig.contains('/') && !orig.contains('\\') && orig.len() > 12)
         || orig.len() > 85
+}
+
+/// 更激进的 Agent 内部思考/工具轨迹识别（专为 il dump chat 折叠设计）。
+/// 匹配 Cursor、Grok Build、Claude 等 Agent 运行时产生的大量状态日志、待办列表、背景任务监控等。
+/// 这些行极少是最终用户可见的“回答”，而是推理轨迹。
+fn is_agent_internal_trace(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let lower = t.to_lowercase();
+
+    // 版本/品牌横幅
+    if lower.contains("grok build")
+        || lower.contains("cursor agent")
+        || lower.starts_with("grok build 0.")
+    {
+        return true;
+    }
+
+    // To-do 列表（Agent 自我任务跟踪）
+    if lower.contains("to-do working on")
+        || (lower.contains("working on") && (lower.contains("to-do") || lower.contains("todo")))
+    {
+        return true;
+    }
+    if t.contains('☐') || t.contains('☒') {
+        return true;
+    }
+
+    // Shell/背景任务等待监控（常见于 agent 工具循环）
+    if lower.contains("waiting ") && (lower.contains("for shell") || lower.contains("background")) {
+        return true;
+    }
+    if lower.contains("monitored background task") {
+        return true;
+    }
+
+    // 典型的 Cursor/Grok 复合状态行（一次输出多动作）
+    if lower.starts_with("globbing, grepping") || lower.contains("globbing, grepping, reading") {
+        return true;
+    }
+
+    // jq / gh / eval 调试痕迹
+    if lower.contains("select(.event")
+        || lower.contains("(eval):")
+        || lower.contains("no matches found")
+    {
+        return true;
+    }
+
+    // 网络/发布相关短状态（WebFetch、gh release、gh run 等）
+    if (lower.contains("webfetch")
+        || lower.contains("gh run")
+        || lower.contains("gh release")
+        || lower.contains("gh api"))
+        && t.len() < 120
+    {
+        return true;
+    }
+
+    // 高密度动作动词行：多次 glob/grep/read/grepped 组合，通常是内部循环
+    let verbs = [
+        "globbing", "grepping", "reading", "grepped", "globbed", "ran ", "cat ",
+    ];
+    let count = verbs.iter().filter(|&&v| lower.contains(v)).count();
+    if count >= 2 && t.len() < 220 {
+        return true;
+    }
+
+    // 纯 JSON 状态对象（常出现在 agent 自我调试输出中）
+    if t.starts_with('{')
+        && t.ends_with('}')
+        && (lower.contains("\"status\"")
+            || lower.contains("\"conclusion\"")
+            || lower.contains("\"in_progress\""))
+    {
+        return true;
+    }
+
+    false
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@
 # Pin a specific version (recommended if network is slow/unstable):
 #   INTENTLOOP_VERSION=0.5.0 curl -fsSL https://intentloop.dev/install.sh | sh
 #
-# Deployed: 2026-05-31 - v0.7.1 (docs: recommend `il dump chat` as primary command for viewing conversations)
+# Deployed: 2026-05-31 - v0.7.2 (feat: aggressive noise folding for `il dump chat` — extracts clean User/Agent core turns only)
 
 set -euo pipefail
 
