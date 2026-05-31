@@ -11,7 +11,7 @@
 # Pin a specific version (recommended if network is slow/unstable):
 #   INTENTLOOP_VERSION=0.5.0 curl -fsSL https://intentloop.dev/install.sh | sh
 #
-# Deployed: 2026-05-31 - v0.7.3 (fix: `il dump chat` 更激进过滤 gh/CI/Waited/shell 监控片段及 JSON 截断，输出更精简，仅保留核心对话)
+# Deployed: 2026-05-31 - v0.7.4 (feat: 实时增量 LiveConversationTracker，il run 退出近 O(1) + 对话流实时写入)
 
 set -euo pipefail
 

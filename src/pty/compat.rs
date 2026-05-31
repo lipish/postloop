@@ -59,12 +59,17 @@ impl CompatPtySession {
     /// `stdout_capture` / `stdin_capture` 如果提供，会在捕获线程中直接 append 原始字节到 sink，
     /// 不再在内存中累积完整 stdout/stdin，从而支持数小时、数 GB 输出的超长 Agent 会话而不 OOM。
     /// ring buffer（256KB 循环）和 events 仍然保留在内存中，供 attach 和结构化事件使用。
+    ///
+    /// `live_stdout_feed` / `live_stdin_raw` 是可选的 live 钩子，用于增量结构化提取（conversation 等）。
+    /// 它们在对应线程里被调用，接收原始 chunk，不应做重工作（由上层 tracker 负责）。
     pub fn spawn(
         command: &[String],
         cwd: &Path,
         extra_env: &HashMap<String, String>,
         stdout_capture: Option<CaptureWriter>,
         stdin_capture: Option<CaptureWriter>,
+        live_stdout_feed: Option<super::LiveChunkFeed>,
+        live_stdin_raw: Option<super::LiveChunkFeed>,
     ) -> Result<Self, anyhow::Error> {
         enable_raw_mode()?;
         let _raw_mode_guard = RawModeGuard;
@@ -99,6 +104,10 @@ impl CompatPtySession {
 
         let running = Arc::new(AtomicBool::new(true));
         let running_in: Arc<AtomicBool> = Arc::clone(&running);
+
+        // live 钩子需要克隆给各自线程（Arc 本身轻量）
+        let live_stdout_feed = live_stdout_feed;
+        let live_stdin_raw = live_stdin_raw;
 
         // stdout 捕获线程：实时写入 sink（如果提供）+ 更新 ring + 事件
         let mut stdout_writer = stdout_capture;
@@ -138,6 +147,11 @@ impl CompatPtySession {
                             .lock()
                             .unwrap_or_else(|p| p.into_inner())
                             .push(event);
+
+                        // live 结构化钩子（增量 feed 给 tracker，不阻塞主输出路径）
+                        if let Some(feed) = &live_stdout_feed {
+                            feed(chunk);
+                        }
                     }
                     Err(_) => break,
                 }
@@ -166,6 +180,11 @@ impl CompatPtySession {
                         }
                         if let Some(w) = &mut stdin_writer {
                             let _ = w.write_all(&buffer[..n]);
+                        }
+
+                        // live stdin 钩子：把原始用户输入字节交给 tracker 做实时 prompt 解析
+                        if let Some(hook) = &live_stdin_raw {
+                            hook(&buffer[..n]);
                         }
                     }
                     Err(_) => break,

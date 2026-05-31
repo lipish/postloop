@@ -30,12 +30,18 @@ impl Vt100Recorder {
 
     /// 按 PTY 捕获顺序回放字节流，仅在屏幕内容变化时记录快照。
     pub fn replay(mut self, stdout: &[u8]) -> Vec<ScreenSnapshot> {
-        for chunk in stdout.chunks(8192) {
+        self.feed(stdout);
+        self.snapshots
+    }
+
+    /// 增量喂入字节（支持 live 捕获期间持续快照），避免退出时全量重放。
+    /// 每块处理后立即尝试 maybe_snapshot。
+    pub fn feed(&mut self, data: &[u8]) {
+        for chunk in data.chunks(8192) {
             self.parser.process(chunk);
             self.maybe_snapshot();
         }
         self.maybe_snapshot();
-        self.snapshots
     }
 
     /// 流式版本：从 reader 读取，避免全量载入大文件到内存。
@@ -55,7 +61,17 @@ impl Vt100Recorder {
         self.snapshots
     }
 
-    fn maybe_snapshot(&mut self) {
+    /// 返回当前已积累的快照切片（live 模式下持续增长）。
+    pub fn snapshots(&self) -> &[ScreenSnapshot] {
+        &self.snapshots
+    }
+
+    /// 强制尝试一次快照（通常 feed 内部已调用）。
+    pub fn force_snapshot(&mut self) {
+        self.maybe_snapshot();
+    }
+
+    pub(crate) fn maybe_snapshot(&mut self) {
         let contents = normalize_screen(&self.parser.screen().contents());
         if contents == self.last_contents {
             return;

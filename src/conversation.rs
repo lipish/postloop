@@ -3,9 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::pty::content_filter::{filter_content_lines, is_noise_line};
 use crate::pty::terminal_input::{parse_submitted_lines, strip_terminal_escapes};
+use std::io::Write;
+
 use crate::pty::vt100_recorder::{
     lines_added, stdout_has_ansi, unique_content_lines, ScreenSnapshot, Vt100Recorder,
 };
+use crate::storage::StreamWriter;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationTurn {
@@ -22,7 +25,7 @@ pub fn extract_conversation(
     cols: u16,
 ) -> Vec<ConversationTurn> {
     let (_, turns) = extract_with_snapshots(stdout, stdin, rows, cols);
-    turns
+    merge_consecutive_turns(turns)
 }
 
 pub fn extract_with_snapshots(
@@ -50,7 +53,7 @@ pub fn extract_with_snapshots(
                 ts: Utc::now().to_rfc3339(),
             });
         }
-        return (snapshots, turns);
+        return (snapshots, merge_consecutive_turns(turns));
     }
 
     let mut agent_start = 0usize;
@@ -86,7 +89,7 @@ pub fn extract_with_snapshots(
         agent_start = agent_end.saturating_add(1);
     }
 
-    (snapshots, turns)
+    (snapshots, merge_consecutive_turns(turns))
 }
 
 fn agent_text_from_snapshots(
@@ -157,6 +160,28 @@ pub fn snapshots_to_jsonl(snapshots: &[ScreenSnapshot]) -> Vec<String> {
         .iter()
         .filter_map(|s| serde_json::to_string(s).ok())
         .collect()
+}
+
+/// 合并相邻同角色 turn（例如人类粘贴多行导致的拆分），避免 chat 显示中一段内容被拆成多个块。
+fn merge_consecutive_turns(turns: Vec<ConversationTurn>) -> Vec<ConversationTurn> {
+    if turns.len() <= 1 {
+        return turns;
+    }
+    let mut out = Vec::with_capacity(turns.len());
+    let mut cur = turns[0].clone();
+    for t in turns.into_iter().skip(1) {
+        if t.role == cur.role {
+            if !cur.text.trim_end().is_empty() && !t.text.trim_start().is_empty() {
+                cur.text.push_str("\n\n");
+            }
+            cur.text.push_str(&t.text);
+        } else {
+            out.push(cur);
+            cur = t;
+        }
+    }
+    out.push(cur);
+    out
 }
 
 /// 检测单行是否为典型的 Agent 工具/状态活动（用于折叠）。
@@ -266,12 +291,290 @@ fn fold_internal_thoughts(text: &str) -> String {
     out.join("\n")
 }
 
+/// 运行时增量对话提取器。
+///
+/// 在 PTY 捕获线程中持续喂入 stdout chunk 和 stdin 提交事件，
+/// 实时维护 vt100 快照 + 已知 user prompt 边界，
+/// 并在每个用户提交时立即将“上一个 agent 响应 + 当前 user prompt”
+/// 序列化为 JSONL 追加到 conversation / normalized 流（如果提供了 writer）。
+///
+/// 目标：把原来 exit 时 O(全量历史) 的重提取工作，分散到会话进行中完成，
+/// 使 `il run` 结束时的保存时间接近 O(1) 或 O(最后几轮)。
+pub struct LiveConversationTracker {
+    recorder: Vt100Recorder,
+    prompts: Vec<String>,
+    /// 下一个 agent 响应开始的快照索引（随已完成 turn 推进）
+    next_agent_start: usize,
+    /// 已完成并写出的 turn 数量（用于最终 finalize 时的剩余处理）
+    emitted_turn_count: usize,
+    /// 是否在 feed 中见过 ANSI（用于决定提取策略）
+    has_ansi: bool,
+    conv_writer: Option<StreamWriter>,
+    norm_writer: Option<StreamWriter>,
+    last_emitted_norm_len: usize,
+    /// 累积的已清理 stdin（仅用户输入，体积很小），用于实时增量 parse_submitted_lines
+    stdin_cleaned: Vec<u8>,
+    last_parsed_prompt_count: usize,
+
+    /// 等待“出现在 stdout 快照中”的用户输入候选。
+    /// 只有当用户真正输入的内容被 TUI 渲染到屏幕上（screen_contains_prompt 能找到），
+    /// 我们才真正把它当作一次对话 user turn 持久化。
+    /// 这能有效过滤掉 TUI 内部状态、CI 日志片段、时间戳标签等噪音。
+    pending_user_candidates: Vec<(String, std::time::Instant)>,
+}
+
+impl LiveConversationTracker {
+    pub fn new(
+        rows: u16,
+        cols: u16,
+        conv: Option<StreamWriter>,
+        norm: Option<StreamWriter>,
+    ) -> Self {
+        Self {
+            recorder: Vt100Recorder::new(rows, cols),
+            prompts: Vec::new(),
+            next_agent_start: 0,
+            emitted_turn_count: 0,
+            has_ansi: false,
+            conv_writer: conv,
+            norm_writer: norm,
+            last_emitted_norm_len: 0,
+            stdin_cleaned: Vec::new(),
+            last_parsed_prompt_count: 0,
+            pending_user_candidates: Vec::new(),
+        }
+    }
+
+    /// 持续喂入 stdout 原始字节，内部驱动 vt100 parser + 按变化产生快照。
+    /// 同时增量把新产生的 normalized 快照写出（如果 writer 存在）。
+    pub fn feed_stdout(&mut self, data: &[u8]) {
+        if !self.has_ansi && data.contains(&0x1b) {
+            self.has_ansi = true;
+        }
+        let before = self.recorder.snapshots().len();
+        self.recorder.feed(data);
+        let after = self.recorder.snapshots().len();
+
+        if let Some(w) = &mut self.norm_writer {
+            for snap in &self.recorder.snapshots()[before..after] {
+                if let Ok(line) = serde_json::to_string(snap) {
+                    let mut s = line;
+                    s.push('\n');
+                    let _ = w.write_all(s.as_bytes());
+                }
+            }
+            self.last_emitted_norm_len = after;
+        }
+
+        // 新快照到达后，尝试把 pending 的用户输入提升（很多 TUI 是在输出阶段才把用户消息渲染上去的）
+        if after > before {
+            self.promote_pending_candidates();
+        }
+    }
+
+    /// 接收原始 stdin 字节（来自 PTY stdin 捕获线程）。
+    /// 仅收集为“pending candidate”，不在此时立即写出。
+    /// 真正的 user turn 只有在 feed_stdout 后续快照中看到该文本被渲染时才会真正 emit。
+    pub fn feed_stdin_raw(&mut self, data: &[u8]) {
+        let cleaned = strip_terminal_escapes(data);
+        self.stdin_cleaned.extend_from_slice(&cleaned);
+
+        let all = parse_submitted_lines(&self.stdin_cleaned);
+        if all.len() > self.last_parsed_prompt_count {
+            let now = std::time::Instant::now();
+            for p in &all[self.last_parsed_prompt_count..] {
+                if !p.trim().is_empty() {
+                    self.pending_user_candidates.push((p.clone(), now));
+                }
+            }
+            self.last_parsed_prompt_count = all.len();
+        }
+
+        // 尝试把已经出现在最新屏幕上的候选提升为真实 user turn
+        self.promote_pending_candidates();
+    }
+
+    /// 检查 pending 候选是否已出现在最近的 stdout 快照中。
+    /// 出现则立即提升为正式 user turn（写出 + 闭合上一段 agent 响应）。
+    fn promote_pending_candidates(&mut self) {
+        if self.pending_user_candidates.is_empty() {
+            return;
+        }
+
+        let snaps = self.recorder.snapshots();
+        if snaps.is_empty() {
+            return;
+        }
+
+        // 只看最近的若干快照，避免全量扫描（性能）
+        let recent_start = snaps.len().saturating_sub(40);
+        let recent = &snaps[recent_start..];
+
+        let now = std::time::Instant::now();
+        let mut still_pending = Vec::new();
+        let mut to_promote = Vec::new();
+
+        for (prompt, first_seen) in self.pending_user_candidates.drain(..) {
+            // 太久没出现（>10s），认为是内部噪音或非对话输入，直接丢弃
+            if now.duration_since(first_seen).as_secs() > 10 {
+                continue;
+            }
+
+            let visible = recent
+                .iter()
+                .any(|s| screen_contains_prompt(&s.contents, &prompt));
+
+            if visible {
+                to_promote.push(prompt);
+            } else {
+                still_pending.push((prompt, first_seen));
+            }
+        }
+
+        self.pending_user_candidates = still_pending;
+
+        for p in to_promote {
+            self.accept_user_prompt(p);
+        }
+    }
+
+    /// 内部：真正接受一个用户 prompt 并写出 user turn + 可能的上一段 agent 响应。
+    /// （原 on_user_submit 的核心逻辑，现由 pending 机制调用）
+    fn accept_user_prompt(&mut self, prompt: String) {
+        if prompt.trim().is_empty() {
+            return;
+        }
+        let now = Utc::now().to_rfc3339();
+
+        let is_first = self.prompts.is_empty();
+        self.prompts.push(prompt.clone());
+
+        // 写出本轮 user turn
+        let user_turn = ConversationTurn {
+            role: "user".to_string(),
+            text: prompt.clone(),
+            ts: now.clone(),
+        };
+        self.append_turn(&user_turn);
+
+        if !is_first {
+            // 闭合上一个 prompt 对应的 agent 响应
+            let prev_idx = self.prompts.len() - 2;
+            let prev_prompt = &self.prompts[prev_idx];
+            let next_prompt = &prompt;
+
+            let snaps = self.recorder.snapshots();
+            let mut j = self.next_agent_start;
+            while j < snaps.len() && !screen_contains_prompt(&snaps[j].contents, next_prompt) {
+                j += 1;
+            }
+            let agent_end = j.saturating_sub(1).max(self.next_agent_start);
+
+            let agent_text =
+                self.extract_agent_text(self.next_agent_start, agent_end, &[prev_prompt.as_str()]);
+            if !agent_text.is_empty() {
+                let agent_turn = ConversationTurn {
+                    role: "agent".to_string(),
+                    text: agent_text,
+                    ts: now,
+                };
+                self.append_turn(&agent_turn);
+            }
+
+            self.next_agent_start = agent_end.saturating_add(1);
+        }
+
+        self.emitted_turn_count = self.prompts.len();
+    }
+
+    /// 会话结束时调用：把最后一个（可能仍在进行中的）agent 响应写出。
+    /// 如果没有任何 user prompt，则把整个输出作为单个 agent turn 写出。
+    pub fn finalize_last_turn(&mut self) {
+        self.recorder.force_snapshot();
+        // 最后再尝试提升剩余 pending（有些 prompt 可能在最后几帧才被渲染）
+        self.promote_pending_candidates();
+
+        let snaps = self.recorder.snapshots();
+        if snaps.is_empty() {
+            return;
+        }
+
+        let now = Utc::now().to_rfc3339();
+
+        if self.prompts.is_empty() {
+            // 无任何输入，整段 stdout 都是 agent 的一次性输出
+            let text = self.extract_agent_text(0, snaps.len().saturating_sub(1), &[]);
+            if !text.is_empty() {
+                let turn = ConversationTurn {
+                    role: "agent".to_string(),
+                    text,
+                    ts: now,
+                };
+                self.append_turn(&turn);
+            }
+            return;
+        }
+
+        // 有 prompt，最后一个 agent 响应从 next_agent_start 到结尾
+        if self.next_agent_start < snaps.len() {
+            let last_prompt = self.prompts.last().map(|s| s.as_str()).unwrap_or("");
+            let text = self.extract_agent_text(
+                self.next_agent_start,
+                snaps.len().saturating_sub(1),
+                &[last_prompt],
+            );
+            if !text.is_empty() {
+                let turn = ConversationTurn {
+                    role: "agent".to_string(),
+                    text,
+                    ts: now,
+                };
+                self.append_turn(&turn);
+            }
+        }
+    }
+
+    /// 返回当前已积累的所有快照（供测试或最终批处理回退）。
+    pub fn snapshots(&self) -> &[ScreenSnapshot] {
+        self.recorder.snapshots()
+    }
+
+    /// 返回已收集到的 user prompts（调试/测试用）。
+    pub fn prompts(&self) -> &[String] {
+        &self.prompts
+    }
+
+    fn append_turn(&mut self, turn: &ConversationTurn) {
+        if let Some(w) = &mut self.conv_writer {
+            if let Ok(line) = serde_json::to_string(turn) {
+                let mut s = line;
+                s.push('\n');
+                let _ = w.write_all(s.as_bytes());
+            }
+        }
+    }
+
+    fn extract_agent_text(&self, start: usize, end: usize, user_prompts: &[&str]) -> String {
+        let snaps = self.recorder.snapshots();
+        if snaps.is_empty() {
+            return String::new();
+        }
+        let mut lines = lines_between_snapshots(snaps, start, end);
+        lines.retain(|line| {
+            !user_prompts
+                .iter()
+                .any(|p| line.trim() == p.trim() || line.contains(p.trim()))
+        });
+        filter_content_lines(lines).join("\n")
+    }
+}
+
 /// Format conversation turns into a human-friendly chat view (il dump chat 推荐输出)。
 ///
 /// 设计目标：仅提炼最核心的用户-代理交互。
-/// - User 输入完整保留
+/// - Human 输入完整保留
 /// - Agent 最终回答完整保留
-/// - Agent 内部工具调用、思考轨迹、状态日志（Globbing/Grepping/To-do/Grok Build 等）自动折叠为摘要
+/// - Agent 内部工具调用、思考轨迹、状态日志自动折叠为摘要
 /// - 工具使用以计数形式记录在折叠说明中（详细原始轨迹请用 `il dump thoughts` 或 `il dump stdout`）
 ///
 /// 输出特点：
@@ -287,19 +590,13 @@ pub fn format_conversation_chat(jsonl: &[u8]) -> String {
         }
         if let Ok(turn) = serde_json::from_str::<ConversationTurn>(line) {
             let is_user = turn.role == "user";
-            let role_label = if is_user { "User" } else { "Agent" };
+            let role_label = if is_user { "Human" } else { "Agent" };
             // Bold + color (cyan for user, green for agent). Works in most modern terminals.
             let color = if is_user { "\x1b[1;36m" } else { "\x1b[1;32m" };
             let reset = "\x1b[0m";
 
-            // Extract HH:MM from RFC3339 timestamp when possible
-            let short_ts = turn
-                .ts
-                .get(11..16)
-                .map(|s| format!(" ({})", s))
-                .unwrap_or_default();
-
-            out.push_str(&format!("{}{}{}{}\n", color, role_label, short_ts, reset));
+            // 时间戳当前为提取时刻的统一值，对话内各 turn 实际发生时间无法精确还原；为避免视觉重复与误导，默认不在 chat 视图展示。
+            out.push_str(&format!("{}{}{}\n", color, role_label, reset));
 
             let raw_body = turn.text.trim();
             let body = if is_user {
@@ -385,15 +682,14 @@ mod tests {
 
         let pretty = format_conversation_chat(jsonl);
 
-        assert!(pretty.contains("User"));
+        assert!(pretty.contains("Human"));
         assert!(pretty.contains("Agent"));
         assert!(pretty.contains("帮我优化这个函数"));
         assert!(pretty.contains("hot path"));
         // Should not contain raw JSON structure
         assert!(!pretty.contains("\"role\""));
         assert!(!pretty.contains("\"text\""));
-        // Should contain short time
-        assert!(pretty.contains("(10:22)"));
+        // 时间戳不再默认显示（提取时统一，无法区分各 turn 实际时刻）
     }
 
     #[test]
@@ -445,7 +741,7 @@ mod tests {
 
         let pretty = format_conversation_chat(&jsonl_bytes);
 
-        assert!(pretty.contains("User"));
+        assert!(pretty.contains("Human"));
         assert!(pretty.contains("Agent"));
         assert!(pretty.contains("为什么还是很乱"));
         assert!(pretty.contains("我已用更激进的过滤完成优化"));

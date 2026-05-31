@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::conversation;
@@ -68,14 +69,10 @@ pub fn run_session(
         );
     }
 
+    // 旧的 append 路径（仅 batch 提取时有内容）。live tracker 已在用户输入期间实时写入对应 stream。
     if !execution.normalized.is_empty() {
         append_jsonl_stream(&registry, &session_id, "normalized", &execution.normalized)?;
-        println!(
-            "VT100 normalized: memmap_fs:sessions/{}/normalized",
-            session_id
-        );
     }
-
     if !execution.conversation.is_empty() {
         append_jsonl_stream(
             &registry,
@@ -83,6 +80,24 @@ pub fn run_session(
             "conversation",
             &execution.conversation,
         )?;
+    }
+
+    // 无论 batch 还是 live，运行结束后若对应流非空就提示（live 模式下内容已在过程中持久化）
+    if !registry
+        .read_stream_to_bytes(&session_id, "normalized")
+        .unwrap_or_default()
+        .is_empty()
+    {
+        println!(
+            "VT100 normalized: memmap_fs:sessions/{}/normalized",
+            session_id
+        );
+    }
+    if !registry
+        .read_stream_to_bytes(&session_id, "conversation")
+        .unwrap_or_default()
+        .is_empty()
+    {
         println!(
             "Conversation log: memmap_fs:sessions/{}/conversation",
             session_id
@@ -471,12 +486,43 @@ fn execute_with_pty(
     let stdout_capture: CaptureWriter = Box::new(registry.stream_writer(session_id, "stdout"));
     let stdin_capture: CaptureWriter = Box::new(registry.stream_writer(session_id, "stdin"));
 
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+
+    // === 新增：live 增量结构化提取器（边跑边保存 conversation / normalized）===
+    // 给 tracker 提供专用的 stream writer，这样每个用户提交 prompt 时都会立即把上一轮 agent 响应 + 本轮 user 写到 memmap_fs。
+    // 退出时只需 finalize 最后一段，彻底避免 exit 时全量 VT100 replay + 提取的长时间卡顿。
+    let conv_writer = Some(registry.stream_writer(session_id, "conversation"));
+    let norm_writer = Some(registry.stream_writer(session_id, "normalized"));
+    let tracker = Arc::new(Mutex::new(conversation::LiveConversationTracker::new(
+        rows,
+        cols,
+        conv_writer,
+        norm_writer,
+    )));
+
+    let tracker_for_stdout = Arc::clone(&tracker);
+    let live_stdout_feed: Option<crate::pty::LiveChunkFeed> =
+        Some(Arc::new(move |chunk: &[u8]| {
+            if let Ok(mut t) = tracker_for_stdout.lock() {
+                t.feed_stdout(chunk);
+            }
+        }));
+
+    let tracker_for_stdin = Arc::clone(&tracker);
+    let live_stdin_raw: Option<crate::pty::LiveChunkFeed> = Some(Arc::new(move |data: &[u8]| {
+        if let Ok(mut t) = tracker_for_stdin.lock() {
+            t.feed_stdin_raw(data);
+        }
+    }));
+
     let mut session = CompatPtySession::spawn(
         command,
         repo_root,
         extra_env,
         Some(stdout_capture),
         Some(stdin_capture),
+        live_stdout_feed,
+        live_stdin_raw,
     )
     .map_err(|e| {
         anyhow!(
@@ -501,12 +547,15 @@ fn execute_with_pty(
     let stdout = strip_ansi_escapes::strip_str(&raw_stdout);
     let stdin_log = strip_ansi_escapes::strip_str(String::from_utf8_lossy(&stdin_bytes).as_ref());
 
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    // 关键变更：使用 live tracker 完成最后收尾（之前的大部分内容已在用户输入时实时写出）
+    // 不再调用全量 extract_with_snapshots（它会重放整个 stdout 历史做 vt100 + diff），从而让关闭瞬间几乎无感知。
+    {
+        let mut t = tracker.lock().expect("tracker poisoned");
+        t.finalize_last_turn();
+    }
 
-    let (snapshots, turns) =
-        conversation::extract_with_snapshots(&stdout_bytes, &stdin_bytes, rows, cols);
-    let conversation = conversation::turns_to_jsonl(&turns);
-    let normalized = conversation::snapshots_to_jsonl(&snapshots);
+    // conversation / normalized 已由 tracker 在运行时 + finalize 时增量写入对应 stream，
+    // 这里返回空 vec 避免上层重复 append（保持存储内容一致）。
     let structured_events = events_to_jsonl(&events);
 
     Ok(ExecutionOutput {
@@ -518,8 +567,8 @@ fn execute_with_pty(
         exit_code: Some(status.exit_code() as i32),
         success: status.success(),
         structured_events,
-        conversation,
-        normalized,
+        conversation: Vec::new(),
+        normalized: Vec::new(),
         ring_buffer,
     })
 }

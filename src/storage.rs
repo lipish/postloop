@@ -28,7 +28,27 @@ impl Storage {
     /// to recover any uncommitted state from a previous crash.
     pub fn init<P: Into<PathBuf>>(root: P) -> Result<Self, StorageError> {
         let root: PathBuf = root.into();
-        let fs = MemMapFS::init(&root)?;
+
+        // 搜索索引使用 Tantivy，写入锁可能因前一次 run 异常中断而残留。
+        // 遇到 LockBusy 时自动清理 writer 锁并重试一次，避免 dump/list 等只读命令也被阻塞。
+        let fs = match MemMapFS::init(&root) {
+            Ok(fs) => fs,
+            Err(e) => {
+                let msg = e.to_string().to_lowercase();
+                if msg.contains("lockbusy")
+                    || msg.contains("failed to acquire lock")
+                    || msg.contains("indexwriter")
+                {
+                    let index_dir = root.join("index");
+                    for name in [".tantivy-writer.lock", ".tantivy-meta.lock"] {
+                        let _ = std::fs::remove_file(index_dir.join(name));
+                    }
+                    MemMapFS::init(&root)?
+                } else {
+                    return Err(e.into());
+                }
+            }
+        };
         Ok(Self { fs, root })
     }
 
