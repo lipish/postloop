@@ -369,43 +369,59 @@ pub fn cmd_dump(
         return Err(anyhow!("Session not found: {}", resolved_id));
     }
 
-    let stream = normalize_dump_stream(&stream)?;
+    let (storage_stream, pretty) = resolve_dump_request(&stream)?;
     let bytes = registry
-        .read_stream_to_bytes(&resolved_id, stream)
+        .read_stream_to_bytes(&resolved_id, &storage_stream)
         .map_err(|_| {
             anyhow!(
                 "Stream not found: memmap_fs:sessions/{}/{}",
                 resolved_id,
-                stream
+                storage_stream
             )
         })?;
 
+    let output_data: Vec<u8> = if pretty {
+        // Pretty human-readable chat view (for `il dump chat`)
+        let formatted = conversation::format_conversation_chat(&bytes);
+        formatted.into_bytes()
+    } else {
+        bytes
+    };
+
     if let Some(path) = output {
         let mut file = fs::File::create(path)?;
-        file.write_all(&bytes)?;
+        file.write_all(&output_data)?;
+        let label = if pretty {
+            "chat (pretty)"
+        } else {
+            &storage_stream
+        };
         println!(
             "Wrote {} bytes from memmap_fs:sessions/{}/{} to {}",
-            bytes.len(),
+            output_data.len(),
             resolved_id,
-            stream,
+            label,
             path.display()
         );
     } else {
         let mut stdout = std::io::stdout();
-        stdout.write_all(&bytes)?;
+        stdout.write_all(&output_data)?;
         stdout.flush()?;
     }
 
     Ok(())
 }
 
-fn normalize_dump_stream(stream: &str) -> Result<&str, anyhow::Error> {
-    match stream {
-        "stdout" | "stdin" | "stderr" | "ring" | "events" | "normalized" | "conversation"
-        | "thoughts" | "report" => Ok(stream),
+fn resolve_dump_request(requested: &str) -> Result<(String, bool), anyhow::Error> {
+    match requested {
+        "chat" => Ok(("conversation".to_string(), true)),
+        "conversation" => Ok(("conversation".to_string(), false)),
+        "stdout" | "stdin" | "stderr" | "ring" | "events" | "normalized" | "thoughts" | "report" => {
+            Ok((requested.to_string(), false))
+        }
         _ => Err(anyhow!(
-            "Unknown stream '{}'. Expected one of: stdout, stdin, stderr, ring, events, normalized, conversation, thoughts, report",
-            stream
+            "Unknown stream '{}'. Expected one of: stdout, stdin, stderr, ring, events, normalized, conversation, chat, thoughts, report",
+            requested
         )),
     }
 }

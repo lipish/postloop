@@ -1,5 +1,5 @@
 use chrono::Utc;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::pty::content_filter::filter_content_lines;
 use crate::pty::terminal_input::{parse_submitted_lines, strip_terminal_escapes};
@@ -7,7 +7,7 @@ use crate::pty::vt100_recorder::{
     lines_added, stdout_has_ansi, unique_content_lines, ScreenSnapshot, Vt100Recorder,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationTurn {
     pub role: String,
     pub text: String,
@@ -159,6 +159,47 @@ pub fn snapshots_to_jsonl(snapshots: &[ScreenSnapshot]) -> Vec<String> {
         .collect()
 }
 
+/// Format conversation turns into a human-friendly chat view.
+/// Used by `il dump chat`.
+///
+/// - Clear User/Agent role labels with light color
+/// - Direct readable text (no JSON)
+/// - Short timestamp (HH:MM)
+pub fn format_conversation_chat(jsonl: &[u8]) -> String {
+    let mut out = String::new();
+    let text = String::from_utf8_lossy(jsonl);
+
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(turn) = serde_json::from_str::<ConversationTurn>(line) {
+            let is_user = turn.role == "user";
+            let role_label = if is_user { "User" } else { "Agent" };
+            // Bold + color (cyan for user, green for agent). Works in most modern terminals.
+            let color = if is_user { "\x1b[1;36m" } else { "\x1b[1;32m" };
+            let reset = "\x1b[0m";
+
+            // Extract HH:MM from RFC3339 timestamp when possible
+            let short_ts = turn
+                .ts
+                .get(11..16)
+                .map(|s| format!(" ({})", s))
+                .unwrap_or_default();
+
+            out.push_str(&format!("{}{}{}{}\n", color, role_label, short_ts, reset));
+            let body = turn.text.trim();
+            if !body.is_empty() {
+                out.push_str(body);
+                out.push_str("\n\n");
+            }
+        }
+    }
+
+    // Trim trailing blank lines
+    out.trim_end().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +254,26 @@ mod tests {
         assert!(agent.contains("优化空间"), "agent text: {}", agent);
         assert!(!agent.contains("Globbing"), "agent text: {}", agent);
         assert!(!agent.contains("Grepping"), "agent text: {}", agent);
+    }
+
+    #[test]
+    fn format_conversation_chat_produces_readable_output() {
+        // Simulate JSONL that would come from a stored conversation stream
+        let jsonl = r#"{"role":"user","text":"帮我优化这个函数","ts":"2026-05-31T10:22:00Z"}
+{"role":"agent","text":"好的，我看了代码。主要问题在 hot path 里。","ts":"2026-05-31T10:22:05Z"}
+"#
+        .as_bytes();
+
+        let pretty = format_conversation_chat(jsonl);
+
+        assert!(pretty.contains("User"));
+        assert!(pretty.contains("Agent"));
+        assert!(pretty.contains("帮我优化这个函数"));
+        assert!(pretty.contains("hot path"));
+        // Should not contain raw JSON structure
+        assert!(!pretty.contains("\"role\""));
+        assert!(!pretty.contains("\"text\""));
+        // Should contain short time
+        assert!(pretty.contains("(10:22)"));
     }
 }

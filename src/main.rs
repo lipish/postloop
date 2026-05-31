@@ -56,7 +56,9 @@ enum Commands {
     },
     /// Dump a stored memmap_fs stream for a session (defaults to latest)
     Dump {
-        /// Stream to dump (stdout, stdin, stderr, ring, events, normalized, conversation, thoughts, report)
+        /// Stream to dump.
+        /// Use 'chat' for a human-readable conversation view (recommended).
+        /// Raw JSONL is available via 'conversation'.
         stream: String,
         /// Session ID (optional; defaults to latest session)
         session_id: Option<String>,
