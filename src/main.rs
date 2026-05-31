@@ -46,14 +46,6 @@ enum Commands {
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
     },
-    /// Replay the saved ring buffer tail for a completed session (defaults to latest)
-    Attach {
-        /// Session ID (optional; defaults to latest session)
-        session_id: Option<String>,
-        /// Explicitly operate on the most recent session
-        #[arg(long, conflicts_with = "session_id")]
-        last: bool,
-    },
     /// Search across all session conversations
     Search {
         /// Search query
@@ -87,7 +79,6 @@ fn main() {
         Commands::Show { session_id, last } => session::cmd_show(session_id.as_deref(), last),
         Commands::Last => session::cmd_show(None, true),
         Commands::List { limit } => session::cmd_list(limit),
-        Commands::Attach { session_id, last } => session::cmd_attach(session_id.as_deref(), last),
         Commands::Search { query, limit } => session::cmd_search(&query, limit),
         Commands::Dump {
             stream,

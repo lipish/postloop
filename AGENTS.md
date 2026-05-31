@@ -20,7 +20,7 @@
 | 会话管理 | 创建、关闭、列表、查询会话 |
 | 对话提取 | 从终端日志中提取 user prompt / agent response |
 | 报告生成 | 生成 Markdown 格式的会话报告内容并写入 `memmap_fs` |
-| CLI 命令 | `il run`, `il list`, `il show`, `il attach`, `il search`, `il dump` |
+| CLI 命令 | `il run`, `il list`, `il show`, `il search`, `il dump` |
 
 ### IntentLoop 不负责
 

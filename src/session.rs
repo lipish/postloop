@@ -330,56 +330,6 @@ pub fn cmd_list(limit: usize) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-pub fn cmd_attach(session_id: Option<&str>, use_last: bool) -> Result<(), anyhow::Error> {
-    let repo_root = std::env::current_dir()?;
-    let registry = Registry::init(&repo_root)?;
-    let resolved_id = resolve_session_id(&registry, session_id, use_last)?;
-
-    let Some(session) = registry.get_session(&resolved_id)? else {
-        return Err(anyhow!("Session not found: {}", resolved_id));
-    };
-
-    if session.status == "running" {
-        return Err(anyhow!(
-            "Live attach is not yet supported. Wait for the session to finish."
-        ));
-    }
-
-    let ring = registry
-        .read_stream_to_bytes(&resolved_id, "ring")
-        .map_err(|_| {
-            anyhow!(
-                "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
-                resolved_id
-            )
-        })?;
-    if ring.is_empty() {
-        return Err(anyhow!(
-            "No ring buffer for session {}. Re-run with PTY interactive mode to capture one.",
-            resolved_id
-        ));
-    }
-    let preview = String::from_utf8_lossy(&ring);
-    let tail: String = preview
-        .chars()
-        .rev()
-        .take(2_048)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-
-    println!("Session: {} ({})", session.id, session.status);
-    println!("Ring buffer: {} bytes", ring.len());
-    println!("--- tail preview ---");
-    print!("{tail}");
-    if !tail.ends_with('\n') {
-        println!();
-    }
-
-    Ok(())
-}
-
 pub fn cmd_search(query: &str, limit: usize) -> Result<(), anyhow::Error> {
     let repo_root = std::env::current_dir()?;
     let registry = Registry::init(&repo_root)?;

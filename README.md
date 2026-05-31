@@ -67,7 +67,6 @@ After a session, you rarely need the ID anymore:
 il list                 # recent sessions, newest first
 il last                 # the most recent session (recommended)
 il show                 # same as `il last` (defaults to latest)
-il attach               # ring buffer tail of the latest session
 il dump report          # export the report of the latest session
 il dump stdout -o out.txt
 ```
@@ -82,7 +81,6 @@ You can still pass an explicit ID when needed: `il show <id>`.
 | `il list [--limit N]`    | List recent sessions (newest first, default 10)   |
 | `il last`                | Show the most recent session                        |
 | `il show [id]`           | Show metadata/streams (defaults to latest)        |
-| `il attach [id]`         | Replay ring buffer tail (defaults to latest)      |
 | `il search <query>`      | Full-text search across conversations             |
 | `il dump [id] <stream>`  | Dump any stream of latest (or given) session      |
 
@@ -117,12 +115,10 @@ You never put any IntentLoop-specific launch configuration in your repo. The rec
 
 - Zero-config recording of any agent already in your PATH (`il run cursor`, etc.)
 - Full PTY capture (even TUI, arrow keys, multi-line prompts)
-- Conversation extraction + ring buffer for instant tail replay (`il attach`)
 - Full-text search across extracted conversations (`il search`)
 
 Roadmap (soon):
 
-- Live attach to a running session
 - One-command rewind to the state before the session
 - Git commit message footer injection
 - Cross-session semantic search over your history
