@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -27,11 +27,6 @@ pub struct PtyEvent {
     pub ts: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<usize>,
-    /// Cumulative bytes written to this stream (stdout or stdin) after this chunk.
-    /// Enables precise byte-range → timestamp correlation for `il dump timeline`.
-    /// None for sessions recorded before this field was added.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<u64>,
 }
 
 pub struct CompatPtySession {
@@ -110,11 +105,6 @@ impl CompatPtySession {
         let running = Arc::new(AtomicBool::new(true));
         let running_in: Arc<AtomicBool> = Arc::clone(&running);
 
-        // 两个独立累积计数器：stdout 和 stdin 各自的字节偏移。
-        // 用于 PtyEvent.offset，实现 stdin 原始字节区间 → 精确时间戳 的关联（timeline 核心）。
-        let stdout_cumulative = Arc::new(AtomicU64::new(0));
-        let stdin_cumulative = Arc::new(AtomicU64::new(0));
-
         // live 钩子需要克隆给各自线程（Arc 本身轻量）
         let live_stdout_feed = live_stdout_feed;
         let live_stdin_raw = live_stdin_raw;
@@ -122,7 +112,6 @@ impl CompatPtySession {
         // stdout 捕获线程：实时写入 sink（如果提供）+ 更新 ring + 事件
         let mut stdout_writer = stdout_capture;
         let events_for_stdout = Arc::clone(&events_clone);
-        let stdout_off = Arc::clone(&stdout_cumulative);
         let stdout_thread_handle = thread::spawn(move || {
             let mut buffer = [0u8; 8192];
             let mut reader = reader;
@@ -149,14 +138,10 @@ impl CompatPtySession {
                             rb.drain(0..excess);
                         }
 
-                        // 累积偏移 + 结构化事件（输出）
-                        let new_offset =
-                            stdout_off.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
                         let event = PtyEvent {
                             ts: chrono::Utc::now().to_rfc3339(),
                             kind: "PtyOutput".to_string(),
                             bytes: Some(n),
-                            offset: Some(new_offset),
                         };
                         events_for_stdout
                             .lock()
@@ -177,12 +162,10 @@ impl CompatPtySession {
             }
         });
 
-        // stdin 捕获线程：同样支持流式 sink + 小内存缓冲（用户输入通常很小）
-        // 关键增强：同时产生带时间戳 + 累积偏移的 PtyInput 事件，用于后续时间轴对齐重建完整输入
+        // stdin 捕获线程：支持流式 sink + 产生带时间戳的 PtyInput 事件（供调试/attach）
         let mut stdin_writer = stdin_capture;
         let events_for_stdin = Arc::clone(&events);
         let live_stdin_raw_for_thread = live_stdin_raw;
-        let stdin_off = Arc::clone(&stdin_cumulative);
         let stdin_thread_handle = thread::spawn(move || {
             let mut stdin_reader = std::io::stdin();
             let mut buffer = [0u8; 1024];
@@ -201,14 +184,10 @@ impl CompatPtySession {
                             let _ = w.write_all(&buffer[..n]);
                         }
 
-                        // 累积偏移 + 记录带 ts 的输入事件（核心：让 timeline 重建有精确时间锚点）
-                        let new_offset =
-                            stdin_off.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
                         let input_event = PtyEvent {
                             ts: chrono::Utc::now().to_rfc3339(),
                             kind: "PtyInput".to_string(),
                             bytes: Some(n),
-                            offset: Some(new_offset),
                         };
                         events_for_stdin
                             .lock()

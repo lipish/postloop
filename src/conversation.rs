@@ -2,10 +2,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::pty::content_filter::{filter_content_lines, is_noise_line};
-use crate::pty::terminal_input::{
-    extract_raw_submissions, parse_submitted_lines, strip_terminal_escapes,
-};
-use crate::pty::PtyEvent;
+use crate::pty::terminal_input::{parse_submitted_lines, strip_terminal_escapes};
 use std::io::Write;
 
 use crate::pty::vt100_recorder::{
@@ -619,123 +616,6 @@ pub fn format_conversation_chat(jsonl: &[u8]) -> String {
     out.trim_end().to_string()
 }
 
-/// 从原始 stdin 流重建“用户实际提交”的完整输入时间线。
-///
-/// 这是目前最可靠的 Human 输入还原手段（独立于 vt100 屏幕匹配和 conversation 启发式）。
-/// 支持 bracketed paste 多行输入、基本退格编辑。
-///
-/// 推荐用法：`il dump timeline`（或内部调用此函数 + 后续丰富时间戳）。
-pub fn format_raw_input_timeline(stdin: &[u8]) -> String {
-    let subs = extract_raw_submissions(stdin);
-    if subs.is_empty() {
-        return "（未从 stdin 中提取到可识别的用户提交）".to_string();
-    }
-
-    let mut out = String::new();
-    for (idx, sub) in subs.iter().enumerate() {
-        let marker = if sub.from_bracketed_paste {
-            " [bracketed-paste]"
-        } else {
-            ""
-        };
-        let size = sub.raw_end.saturating_sub(sub.raw_start);
-        out.push_str(&format!(
-            "=== Human Input #{} ({} bytes{}) ===\n",
-            idx + 1,
-            size,
-            marker
-        ));
-        out.push_str(&sub.text);
-        out.push_str("\n\n");
-    }
-    out.trim_end().to_string()
-}
-
-/// 带时间戳 + stdout 上下文的增强 timeline（推荐用于 `il dump timeline`）。
-///
-/// 利用 PtyInput / PtyOutput 事件中新增的 cumulative `offset` 字段，
-/// 将 RawSubmission 的原始字节区间精确映射回真实墙钟时间。
-/// 同时报告每个提交时刻 stdout 已经累积的字节数，作为“输出上下文”锚点。
-///
-/// 旧会话（事件无 offset）会优雅退化到无时间戳版本。
-pub fn format_timeline_annotated(stdin: &[u8], events_jsonl: &[u8]) -> String {
-    let subs = extract_raw_submissions(stdin);
-    if subs.is_empty() {
-        return "（未从 stdin 中提取到可识别的用户提交）".to_string();
-    }
-
-    // 解析所有事件，只保留带 offset 的 PtyInput / PtyOutput
-    let mut input_events: Vec<(u64, String)> = Vec::new(); // (offset, ts)
-    let mut output_offsets: Vec<u64> = Vec::new(); // 仅用于“附近 stdout 字节数”
-
-    let text = String::from_utf8_lossy(events_jsonl);
-    for line in text.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(ev) = serde_json::from_str::<PtyEvent>(line) {
-            if let Some(off) = ev.offset {
-                match ev.kind.as_str() {
-                    "PtyInput" => input_events.push((off, ev.ts)),
-                    "PtyOutput" => output_offsets.push(off),
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    // 按 offset 排序（同一流内 offset 单调递增）
-    input_events.sort_by_key(|&(o, _)| o);
-    output_offsets.sort_unstable();
-
-    let mut out = String::new();
-    for (idx, sub) in subs.iter().enumerate() {
-        let marker = if sub.from_bracketed_paste {
-            " [bracketed-paste]"
-        } else {
-            ""
-        };
-        let size = sub.raw_end.saturating_sub(sub.raw_start);
-
-        // 找最接近这次提交的 PtyInput 事件（第一个 offset >= sub 起始）
-        let ts = input_events
-            .iter()
-            .find(|&&(off, _)| off >= sub.raw_start as u64)
-            .map(|(_, t)| t.as_str())
-            .unwrap_or("");
-
-        let ts_prefix = if ts.is_empty() {
-            String::new()
-        } else {
-            format!(" @ {}", ts)
-        };
-
-        // 找该时刻最近的 stdout 累积字节（作为轻量“输出上下文”）
-        let stdout_ctx = if let Some(&last_out) = output_offsets
-            .iter()
-            .rev()
-            .find(|&&o| o <= sub.raw_start as u64 + size as u64)
-        {
-            format!(" (stdout~{}B)", last_out)
-        } else {
-            String::new()
-        };
-
-        out.push_str(&format!(
-            "=== Human Input #{} ({} bytes{}{}){} ===\n",
-            idx + 1,
-            size,
-            marker,
-            stdout_ctx,
-            ts_prefix
-        ));
-        out.push_str(&sub.text);
-        out.push_str("\n\n");
-    }
-
-    out.trim_end().to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -875,50 +755,5 @@ mod tests {
 
         // 有折叠提示（记录了工具调用）
         assert!(pretty.contains("[Agent 内部操作已折叠"));
-    }
-
-    #[test]
-    fn extract_raw_submissions_handles_bracketed_paste_multi_line() {
-        // 模拟真实多行 paste + 提交：bracketed paste 包裹多行文本，最后 \r 提交
-        let raw_stdin: Vec<u8> = [
-            b"\x1b[200~".as_slice(),
-            "针对 IntentLoop 多行输入问题\n我们需要综合 stdin stdout events\n来完整还原用户真正提交的内容".as_bytes(),
-            b"\x1b[201~\r".as_slice(),
-        ]
-        .concat();
-
-        let subs = extract_raw_submissions(&raw_stdin);
-
-        assert_eq!(subs.len(), 1);
-        let s = &subs[0];
-        assert!(s.from_bracketed_paste);
-        assert!(s.text.contains("针对 IntentLoop 多行输入问题"));
-        assert!(s.text.contains("完整还原用户真正提交的内容"));
-        assert!(s.raw_start < s.raw_end);
-    }
-
-    #[test]
-    fn format_timeline_annotated_attaches_ts_from_ptyinput_events() {
-        // 构造一个带 bracketed paste 的 stdin + 对应的 PtyInput 事件 JSONL（带 offset）
-        let raw_stdin: Vec<u8> = [
-            b"\x1b[200~".as_slice(),
-            "多行问题\n用事件 offset 精确关联时间\n".as_bytes(),
-            b"\x1b[201~\r".as_slice(),
-        ]
-        .concat();
-
-        // 模拟事件流：一个 PtyInput 在 offset 30 处（paste 内容大致范围）
-        let events_jsonl = r#"{"type":"PtyInput","ts":"2026-05-31T18:05:00.123Z","bytes":45,"offset":45}
-{"type":"PtyOutput","ts":"2026-05-31T18:05:00.200Z","bytes":120,"offset":120}
-"#;
-
-        let annotated = format_timeline_annotated(&raw_stdin, events_jsonl.as_bytes());
-
-        assert!(annotated.contains("Human Input #1"));
-        assert!(annotated.contains("2026-05-31T18:05:00.123Z")); // 拿到了事件时间
-        assert!(annotated.contains("bracketed-paste"));
-        // stdout 上下文是尽力而为（取决于 offset 是否落入当前 submission 范围），核心价值已由时间戳证明
-        assert!(annotated.contains("多行问题"));
-        assert!(annotated.contains("精确关联时间"));
     }
 }

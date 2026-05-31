@@ -58,9 +58,7 @@ enum Commands {
     Dump {
         /// Stream to dump.
         /// Use 'chat' for a human-readable conversation view (recommended).
-        /// Use 'timeline' for the most complete raw Human input reconstruction
-        ///   (with bracketed-paste support + real timestamps from events when available).
-        /// Raw JSONL is available via 'conversation' / 'stdin' / 'events' etc.
+        /// Raw JSONL is available via 'conversation' / 'stdin' / 'events' / 'stdout' etc.
         stream: String,
         /// Session ID (optional; defaults to latest session)
         session_id: Option<String>,
